@@ -196,6 +196,21 @@ describe("task-reminder-access", () => {
     ]);
   });
 
+  it("grants City Pack Delivery Failed HUD from reminders.citypak_delivery_failed", () => {
+    const context = {
+      roleNames: ["merchant-level-01"],
+      permissionKeys: [
+        "dashboard.merchant_view",
+        "reminders.citypak_delivery_failed",
+      ],
+    };
+    expect(canSeeTaskReminderCategory(context, "citypak_delivery_failed")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "delivery_pending")).toBe(false);
+    expect(listVisibleTaskReminderCategories(context)).toEqual([
+      "citypak_delivery_failed",
+    ]);
+  });
+
   it("does not scope samples for store users", () => {
     const context = {
       roleNames: ["store"],

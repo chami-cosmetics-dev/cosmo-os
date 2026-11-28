@@ -6,10 +6,14 @@ import {
   buildMerchantPaymentApprovalWhere,
   formatPlacedAge,
   hasReminderPermission,
+  isCitypakDeliveryFailedStatus,
   isTaskReminderOverdue,
+  mapCitypakDeliveryFailedReminder,
   mapMerchantDispatchPendingReminder,
   mapMerchantPaymentApprovalReminder,
+  merchantOwnsCitypakDeliveryFailedOrder,
   merchantOwnsReminderOrder,
+  resolveCitypakDeliveryFailedSince,
   resolveDispatchReminderSince,
 } from "@/lib/task-reminders";
 import { TASK_REMINDER_SLA_MS } from "@/lib/task-reminder-sla";
@@ -226,5 +230,107 @@ describe("merchant dispatch pending reminders", () => {
       href: "/dashboard/merchant?orderId=ord-1",
     });
     expect(pending.body).toContain("placed 2d 5h ago");
+  });
+});
+
+describe("citypak delivery failed reminders", () => {
+  const now = new Date("2026-11-27T12:00:00Z");
+  const merchantA = "user-merchant-a";
+  const merchantB = "user-merchant-b";
+  const sandali = "user-sandali";
+
+  it("accepts only attempt_failed status", () => {
+    expect(isCitypakDeliveryFailedStatus("attempt_failed")).toBe(true);
+    expect(isCitypakDeliveryFailedStatus("delivered")).toBe(false);
+    expect(isCitypakDeliveryFailedStatus("returned")).toBe(false);
+    expect(isCitypakDeliveryFailedStatus("in_transit")).toBe(false);
+    expect(isCitypakDeliveryFailedStatus(null)).toBe(false);
+  });
+
+  it("scopes personal MER failures to owning merchant only", () => {
+    const order = {
+      assignedMerchantId: null,
+      sourceName: "erpnext",
+      discountCodes: [{ code: "MER86-Nirukshi", amount: 0 }],
+    };
+    expect(
+      merchantOwnsCitypakDeliveryFailedOrder(order, merchantA, ["MER86-Nirukshi"]),
+    ).toBe(true);
+    expect(
+      merchantOwnsCitypakDeliveryFailedOrder(order, merchantB, ["MER103-Semini"]),
+    ).toBe(false);
+  });
+
+  it("attributes DM-only failures to DM coupon holders (Sandali / MER115)", () => {
+    const dmOrder = {
+      assignedMerchantId: null,
+      sourceName: "erpnext",
+      discountCodes: [{ code: "DM_General", amount: 0 }],
+    };
+    expect(
+      merchantOwnsCitypakDeliveryFailedOrder(dmOrder, sandali, [
+        "MER91-Sandali",
+        "MER115-Sandali",
+      ]),
+    ).toBe(true);
+    expect(
+      merchantOwnsCitypakDeliveryFailedOrder(dmOrder, merchantA, ["MER86-Nirukshi"]),
+    ).toBe(false);
+  });
+
+  it("maps reminder with waybill deep-link href", () => {
+    const reminder = mapCitypakDeliveryFailedReminder(
+      {
+        id: "wb-1",
+        waybillNo: "D17232326",
+        invoiceNumber: "60021512",
+        rawPayload: {
+          citypakStatus: "attempt_failed",
+          citypakStatusCheckedAt: "2026-11-26T12:00:00.000Z",
+        },
+        updatedAt: new Date("2026-11-26T12:00:00Z"),
+        order: {
+          id: "ord-1",
+          name: "60021512",
+          orderNumber: "60021512",
+          shopifyOrderId: null,
+        },
+      },
+      now,
+    );
+    expect(reminder).toMatchObject({
+      id: "citypak_delivery_failed:wb-1",
+      category: "citypak_delivery_failed",
+      orderId: "ord-1",
+      invoiceLabel: "60021512",
+      href: "/dashboard/fulfillment/waybill-lookup?orderId=ord-1&waybillId=wb-1",
+    });
+    expect(reminder?.body).toContain("D17232326");
+    expect(
+      mapCitypakDeliveryFailedReminder(
+        {
+          id: "wb-2",
+          waybillNo: "D1",
+          invoiceNumber: "1",
+          rawPayload: { citypakStatus: "delivered" },
+          order: {
+            id: "ord-2",
+            name: "1",
+            orderNumber: "1",
+            shopifyOrderId: null,
+          },
+        },
+        now,
+      ),
+    ).toBeNull();
+  });
+
+  it("resolves waiting clock from citypakStatusCheckedAt", () => {
+    expect(
+      resolveCitypakDeliveryFailedSince({
+        rawPayload: { citypakStatusCheckedAt: "2026-11-26T06:00:00.000Z" },
+        updatedAt: new Date("2026-11-27T01:00:00Z"),
+      }),
+    ).toEqual(new Date("2026-11-26T06:00:00.000Z"));
   });
 });

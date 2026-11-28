@@ -206,6 +206,14 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 p-5">
+              <ReportRow
+                title="Full Invoice Dump"
+                subtitle="All years of system orders and imported invoices for your company."
+                actions={allowedActions([
+                  { href: "/api/admin/reports/orders?report=invoice-item&range=all", label: "Invoice Item Details", permission: REPORT_DUMP_PERMISSIONS.master, tone: "sky" },
+                  { href: "/api/admin/reports/orders?report=invoice&range=all", label: "Invoice Details", permission: REPORT_DUMP_PERMISSIONS.master, tone: "amber" },
+                ])}
+              />
               {historicalYears.map((year) => {
                 const historicalQuery = `range=custom&from=${yearStart(year)}&to=${yearEnd(year)}`;
                 const historicalInvoiceItemHref = `/api/admin/reports/orders?report=invoice-item&${historicalQuery}`;
@@ -237,7 +245,7 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
                 );
               })}
               <div className="rounded-2xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-                Historical files use calendar-year ranges, and invoice exports are generated directly from current live order records.
+                Year-by-year files use calendar-year ranges and contain system orders.
               </div>
             </CardContent>
           </Card>

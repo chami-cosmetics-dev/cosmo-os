@@ -51,6 +51,7 @@ export function DumpDownloadButton({
 }: DumpDownloadButtonProps) {
   const toastId = useId();
   const [percent, setPercent] = useState<number | null>(null);
+  const [rowsDownloaded, setRowsDownloaded] = useState(0);
   const [mounted, setMounted] = useState(false);
   const busy = percent !== null;
 
@@ -147,6 +148,7 @@ export function DumpDownloadButton({
 
         const nextPercent = expectedRows > 0 ? dumpProgressPercent(receivedRows, expectedRows) : 0;
         setPercent(nextPercent);
+        if (expectedRows === 0) setRowsDownloaded(receivedRows);
         if (nextPercent > 0 && nextPercent !== lastNotified) {
           lastNotified = nextPercent;
           notify.loading(`Downloading ${label} — ${nextPercent}%`, toastId);
@@ -174,6 +176,7 @@ export function DumpDownloadButton({
       notify.error(error instanceof Error ? error.message : "Download failed.", toastId);
     } finally {
       setPercent(null);
+      setRowsDownloaded(0);
       onBusyChange?.(false);
     }
   }
@@ -181,7 +184,7 @@ export function DumpDownloadButton({
   const statusLabel = busy
     ? percent && percent > 0
       ? `Downloading ${percent}%`
-      : "Preparing..."
+      : rowsDownloaded > 0 ? "Downloading..." : "Preparing..."
     : label;
 
   return (
@@ -203,7 +206,7 @@ export function DumpDownloadButton({
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-valuenow={percent ?? 0}
+            aria-valuenow={rowsDownloaded > 0 && !percent ? undefined : percent ?? 0}
             aria-label={`${label} download`}
           >
             {percent && percent > 0 ? (
@@ -224,10 +227,10 @@ export function DumpDownloadButton({
                 <div className="flex items-center gap-2">
                   <Loader2 className="size-4 animate-spin text-sky-500" aria-hidden />
                   <p className="font-medium text-foreground">
-                    {percent && percent > 0 ? `Downloading ${label}` : `Preparing ${label}`}
+                    {percent || rowsDownloaded > 0 ? `Downloading ${label}` : `Preparing ${label}`}
                   </p>
                   <span className="ml-auto text-sm font-semibold tabular-nums text-sky-600">
-                    {percent && percent > 0 ? `${percent}%` : "…"}
+                    {percent ? `${percent}%` : rowsDownloaded > 0 ? `${rowsDownloaded.toLocaleString()} rows` : "…"}
                   </span>
                 </div>
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">

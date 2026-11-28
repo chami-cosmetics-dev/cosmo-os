@@ -16,6 +16,12 @@ import {
 } from "@/lib/fulfillment-queue-filters";
 import { getLegacyAccSinvFulfillmentWhere } from "@/lib/legacy-acc-sinv";
 import {
+  CITYPAK_WAYBILL_SOURCE,
+  readCitypakWaybillStatus,
+} from "@/lib/citypak-api";
+import {
+  isDmCouponCode,
+  isDmOnlyMerchantTracking,
   isMerchantTrackingCode,
   parseOrderCouponList,
 } from "@/lib/merchant-dm-sales";
@@ -26,6 +32,7 @@ import { prisma } from "@/lib/prisma";
 import {
   canSeeTaskReminderCategory,
   listVisibleTaskReminderCategories,
+  resolveTaskReminderAudiences,
   shouldScopeSampleRemindersToMerchant,
   type TaskReminderAccessContext,
 } from "@/lib/task-reminder-access";
@@ -51,7 +58,8 @@ export type TaskReminderCategory =
   | "purchasing_rop_threshold"
   | "stock_request_restocked"
   | "item_creation"
-  | "shop_to_main";
+  | "shop_to_main"
+  | "citypak_delivery_failed";
 
 export type TaskReminder = {
   id: string;
@@ -1053,6 +1061,195 @@ async function fetchShopToMainReminders(companyId: string, now: Date): Promise<C
   return { reminders, totalCount };
 }
 
+/** Exact CityPak stored status that qualifies for City Pack Delivery Failed. */
+export function isCitypakDeliveryFailedStatus(
+  status: string | null | undefined,
+): boolean {
+  return status === "attempt_failed";
+}
+
+export function resolveCitypakDeliveryFailedSince(input: {
+  rawPayload: unknown;
+  updatedAt?: Date | null;
+  uploadedAt?: Date | null;
+}): Date | null {
+  const snapshot = readCitypakWaybillStatus(input.rawPayload);
+  if (snapshot.checkedAt) {
+    const checked = new Date(snapshot.checkedAt);
+    if (!Number.isNaN(checked.getTime())) return checked;
+  }
+  return input.updatedAt ?? input.uploadedAt ?? null;
+}
+
+/** Coupon strings on the order for DM/MER ownership (ERP may omit DM_General from MER-only extract). */
+export function collectOrderCouponCodesForReminder(order: {
+  sourceName?: string | null;
+  discountCodes?: unknown;
+  rawPayload?: unknown;
+}): string[] {
+  const codes = new Set<string>();
+  const joined = getMerchantCouponCode({
+    sourceName: order.sourceName,
+    discountCodes: order.discountCodes,
+    rawPayload: order.rawPayload,
+    joinAllDiscountCodes: true,
+  });
+  for (const code of parseOrderCouponList(joined)) {
+    codes.add(code);
+  }
+  if (Array.isArray(order.discountCodes)) {
+    for (const entry of order.discountCodes) {
+      if (entry == null || typeof entry !== "object") continue;
+      const code = (entry as Record<string, unknown>).code;
+      if (typeof code !== "string" || !code.trim()) continue;
+      codes.add(code.trim().toLowerCase());
+    }
+  }
+  return [...codes];
+}
+
+/**
+ * Personal MER ownership, or DM-only orders for viewers who hold DM coupon codes
+ * (Sandali / MER115 family — no hardcoded user id).
+ */
+export function merchantOwnsCitypakDeliveryFailedOrder(
+  order: {
+    assignedMerchantId?: string | null;
+    sourceName?: string | null;
+    discountCodes?: unknown;
+    rawPayload?: unknown;
+  },
+  merchantUserId: string,
+  merchantCouponCodes: string[],
+): boolean {
+  if (merchantOwnsReminderOrder(order, merchantUserId, merchantCouponCodes)) {
+    return true;
+  }
+  const orderCoupons = collectOrderCouponCodesForReminder(order);
+  if (!isDmOnlyMerchantTracking(orderCoupons)) return false;
+  return merchantCouponCodes.some((code) => isDmCouponCode(code));
+}
+
+export function mapCitypakDeliveryFailedReminder(
+  waybill: {
+    id: string;
+    waybillNo: string;
+    invoiceNumber: string;
+    rawPayload: unknown;
+    updatedAt?: Date | null;
+    uploadedAt?: Date | null;
+    order: {
+      id: string;
+      name: string | null;
+      orderNumber: string | null;
+      shopifyOrderId: string | null;
+    } | null;
+  },
+  now: Date,
+): TaskReminder | null {
+  if (!isCitypakDeliveryFailedStatus(readCitypakWaybillStatus(waybill.rawPayload).status)) {
+    return null;
+  }
+  const invoiceLabel = waybill.order
+    ? orderInvoiceLabel(waybill.order)
+    : waybill.invoiceNumber || waybill.waybillNo;
+  const since =
+    resolveCitypakDeliveryFailedSince(waybill) ?? now;
+  const waitingHours = waitingHoursSince(since, now);
+  return {
+    id: `citypak_delivery_failed:${waybill.id}`,
+    category: "citypak_delivery_failed",
+    title: "City Pack delivery failed",
+    body: `${invoiceLabel} · ${waybill.waybillNo} — delivery attempt failed (${waitingHours}h).`,
+    href: taskReminderHref("/dashboard/fulfillment/waybill-lookup", {
+      waybillId: waybill.id,
+      orderId: waybill.order?.id,
+    }),
+    waitingHours,
+    orderId: waybill.order?.id,
+    invoiceLabel,
+  };
+}
+
+const CITYPAK_DELIVERY_FAILED_FETCH_CAP = 500;
+
+async function fetchCitypakDeliveryFailedReminders(
+  companyId: string,
+  context: PermissionContext,
+  now: Date,
+): Promise<CappedReminders> {
+  const audiences = resolveTaskReminderAudiences(context);
+  const scopeToMerchant =
+    audiences.has("merchant") && !audiences.has("admin");
+
+  let merchantCouponCodes: string[] = [];
+  if (scopeToMerchant) {
+    if (!context.userId) {
+      return { reminders: [], totalCount: 0 };
+    }
+    const merchant = await prisma.user.findFirst({
+      where: { id: context.userId, companyId },
+      select: { couponCodes: true, wholesaleCouponCodes: true },
+    });
+    merchantCouponCodes = [
+      ...(merchant?.couponCodes ?? []),
+      ...(merchant?.wholesaleCouponCodes ?? []),
+    ];
+  }
+
+  const rows = await prisma.orderWaybill.findMany({
+    where: {
+      companyId,
+      source: CITYPAK_WAYBILL_SOURCE,
+      orderId: { not: null },
+      rawPayload: {
+        path: ["citypakStatus"],
+        equals: "attempt_failed",
+      },
+    },
+    orderBy: { updatedAt: "asc" },
+    take: CITYPAK_DELIVERY_FAILED_FETCH_CAP,
+    select: {
+      id: true,
+      waybillNo: true,
+      invoiceNumber: true,
+      rawPayload: true,
+      uploadedAt: true,
+      updatedAt: true,
+      order: {
+        select: {
+          id: true,
+          name: true,
+          orderNumber: true,
+          shopifyOrderId: true,
+          assignedMerchantId: true,
+          sourceName: true,
+          discountCodes: true,
+          rawPayload: true,
+        },
+      },
+    },
+  });
+
+  const eligible = rows.filter((row) => {
+    if (!row.order) return false;
+    if (!isCitypakDeliveryFailedStatus(readCitypakWaybillStatus(row.rawPayload).status)) {
+      return false;
+    }
+    if (!scopeToMerchant || !context.userId) return true;
+    return merchantOwnsCitypakDeliveryFailedOrder(
+      row.order,
+      context.userId,
+      merchantCouponCodes,
+    );
+  });
+
+  const mapped = compactReminders(
+    eligible.map((row) => mapCitypakDeliveryFailedReminder(row, now)),
+  );
+  return toCappedReminders(mapped);
+}
+
 export async function fetchTaskReminders(
   companyId: string,
   context: PermissionContext,
@@ -1154,6 +1351,15 @@ export async function fetchTaskReminders(
     reminders.push(...itemCreation.reminders);
     categoryCounts.item_creation = itemCreation.totalCount;
   }
+  if (canSeeTaskReminderCategory(context, "citypak_delivery_failed")) {
+    const citypakFailed = await fetchCitypakDeliveryFailedReminders(
+      companyId,
+      context,
+      now,
+    );
+    reminders.push(...citypakFailed.reminders);
+    categoryCounts.citypak_delivery_failed = citypakFailed.totalCount;
+  }
 
   reminders.sort((a, b) => b.waitingHours - a.waitingHours);
 
@@ -1170,6 +1376,7 @@ export async function fetchTaskReminders(
     "stock_request_restocked",
     "shop_to_main",
     "item_creation",
+    "citypak_delivery_failed",
   ]);
 
   for (const reminder of reminders) {

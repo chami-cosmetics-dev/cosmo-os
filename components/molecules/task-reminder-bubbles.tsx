@@ -49,6 +49,7 @@ const CATEGORY_ORDER = [
   "stock_request_restocked",
   "item_creation",
   "shop_to_main",
+  "citypak_delivery_failed",
 ] as const;
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -67,6 +68,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   stock_request_restocked: "Wishlist items back in stock",
   item_creation: "Item creation workflow",
   shop_to_main: "Shop returns",
+  citypak_delivery_failed: "City Pack Delivery Failed",
 };
 
 const CATEGORY_NODE_LABELS: Record<string, string> = {
@@ -85,6 +87,7 @@ const CATEGORY_NODE_LABELS: Record<string, string> = {
   stock_request_restocked: "Back in stock",
   item_creation: "Item creation",
   shop_to_main: "Shop returns",
+  citypak_delivery_failed: "City Pack failed",
 };
 
 function groupReminders(reminders: TaskReminder[]) {

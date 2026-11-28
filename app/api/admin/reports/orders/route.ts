@@ -22,6 +22,7 @@ import {
   dumpExposeHeaders,
 } from "@/lib/reports/dump-download";
 import { dumpInvoiceShippingRuleFromStored } from "@/lib/reports/dump-invoice-shipping";
+import { createImportedInvoiceItemRows, createImportedInvoiceRow } from "@/lib/reports/imported-order-dump";
 import {
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
@@ -45,15 +46,17 @@ import { resolveCustomerPhone, resolveShippingPhone } from "@/lib/order-sms-reso
 import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
 import { parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
+import { cuidSchema } from "@/lib/validation";
 
 type ReportKind = "invoice" | "invoice-item";
-type RangeKind = "last-90" | "warehouse-360" | "historical-year" | "custom";
+type RangeKind = "last-90" | "warehouse-360" | "historical-year" | "custom" | "all";
 
 function parseReportKind(value: string | null): ReportKind {
   return value === "invoice-item" ? "invoice-item" : "invoice";
 }
 
 function parseRangeKind(value: string | null): RangeKind {
+  if (value === "all") return "all";
   if (value === "custom") return "custom";
   if (value === "warehouse-360") return "warehouse-360";
   if (value === "historical-year") return "historical-year";
@@ -61,6 +64,8 @@ function parseRangeKind(value: string | null): RangeKind {
 }
 
 function getRangeBounds(range: RangeKind, year: number | null, fromYmd: string | null, toYmd: string | null) {
+  if (range === "all") return { label: "all" };
+
   const now = new Date();
   if (range === "custom") {
     const from = parseAppCalendarDayStart(fromYmd);
@@ -287,6 +292,10 @@ function dumpMerchantName(input: {
 }
 
 function getReportLabel(report: ReportKind, range: RangeKind) {
+  if (range === "all") return report === "invoice-item"
+    ? "Full Invoice Item Dump"
+    : "Full Invoice Dump";
+
   if (report === "invoice-item") {
     if (range === "warehouse-360") return "Web-site Invoice Item Detail (Invoice Wise) [Processed Up to Last Day]";
     if (range === "historical-year" || range === "custom") return "Historical Invoice Item Details";
@@ -305,6 +314,9 @@ function getReportLabel(report: ReportKind, range: RangeKind) {
  */
 const DUMP_INVOICE_EXPORT_ORDERS = 2000;
 const DUMP_ITEM_EXPORT_ORDERS = 250;
+const DUMP_HISTORY_INVOICE_PAGE_SIZE = 1000;
+// An empty history cursor starts the imported phase after the last system order.
+const DUMP_HISTORY_CURSOR_PREFIX = "history:";
 const DUMP_ORDER_ORDER_BY = [
   { createdAt: "desc" as const },
   { id: "desc" as const },
@@ -315,7 +327,6 @@ const ORDER_DUMP_BASE_INCLUDE = {
     select: {
       name: true,
       erpnextCompany: true,
-      erpnextInstance: { select: { baseUrl: true, apiKey: true, apiSecret: true } },
     },
   },
   assignedMerchant: { select: { id: true, knownName: true, name: true, email: true, couponCodes: true } },
@@ -352,6 +363,25 @@ const ORDER_DUMP_ITEM_INCLUDE = {
     },
   },
 } as const;
+
+const HISTORY_DUMP_SELECT = {
+  id: true,
+  salesInvoiceNo: true,
+  salesInvoiceMasterId: true,
+  invoiceDate: true,
+  ttlAmount: true,
+  locationName: true,
+  paymentMethod: true,
+  financialStatus: true,
+  merchantKnownName: true,
+  origin: true,
+  importBatchId: true,
+  rawPaymentContext: true,
+  lineItems: true,
+  company: { select: { name: true } },
+  companyLocation: { select: { companyId: true, name: true, erpnextCompany: true } },
+  contact: { select: { companyId: true, name: true, phoneNumber: true, email: true } },
+} satisfies Prisma.AdaptPurchaseHistorySelect;
 
 async function loadManualCreatorEmails(companyId: string, orderIds: string[]) {
   const orderIdToManualCreatorEmail = new Map<string, string>();
@@ -415,54 +445,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: bounds.error }, { status: 400 });
   }
   const { from, to, label } = bounds;
+  const after = request.nextUrl.searchParams.get("after")?.trim() ?? "";
+  const fullDump = range === "all";
+  const historyPage = fullDump && after.startsWith(DUMP_HISTORY_CURSOR_PREFIX);
+  const cursorId = historyPage ? after.slice(DUMP_HISTORY_CURSOR_PREFIX.length) : after;
+  if (fullDump && cursorId && !cuidSchema.safeParse(cursorId).success) {
+    return NextResponse.json({ error: "Invalid download cursor" }, { status: 400 });
+  }
+
   // Stored order fields only. A live ERP call per invoice made Dump 2 too slow
   // and the download was cut off before the last rows.
   const exportConcurrency = 16;
-  const orderWhere = {
+  const orderWhere: Prisma.OrderWhereInput = {
     companyId,
-    createdAt: {
-      gte: from,
-      lte: to,
-    },
+    ...(from && to ? { createdAt: { gte: from, lte: to } } : {}),
   };
-
-  const [totalOrders, merchantUsers, userToGroup, creatorUsers, totalLineItems] = await Promise.all([
-    prisma.order.count({ where: orderWhere }),
-    prisma.user.findMany({
-      where: {
-        companyId,
-        couponCodes: { isEmpty: false },
-      },
-      select: {
-        id: true,
-        knownName: true,
-        name: true,
-        email: true,
-        couponCodes: true,
-      },
-    }),
-    getMerchantGroupUserMap(companyId),
-    prisma.user.findMany({
-      where: {
-        companyId,
-        OR: [
-          { shopifyUserIds: { isEmpty: false } },
-          { erpnextUsername: { not: null } },
-        ],
-      },
-      select: {
-        email: true,
-        shopifyUserIds: true,
-        erpnextUsername: true,
-      },
-    }),
-    report === "invoice-item"
-      ? prisma.orderLineItem.count({ where: { order: orderWhere } })
-      : Promise.resolve(0),
-  ]);
-  const couponToMerchant = buildCouponToMerchantMap(merchantUsers, userToGroup);
-  const shopifyUserIdToEmail = buildShopifyUserIdToEmailMap(creatorUsers);
-  const erpnextUsernameToEmail = buildErpnextUsernameToEmailMap(creatorUsers);
 
   const filterParts = [`report=${report}`, `range=${range}`];
   if (range === "historical-year") filterParts.push(`year=${label}`);
@@ -474,7 +471,6 @@ export async function GET(request: NextRequest) {
   const csvHeaders = report === "invoice-item"
     ? getOrderInvoiceItemCsvHeaders(omitCustomerPhone)
     : getOrderInvoiceCsvHeaders(omitCustomerPhone);
-  const totalCsvRows = report === "invoice-item" ? totalLineItems : totalOrders;
   const fileName = omitCustomerPhone
     ? report === "invoice-item"
       ? `utility-order-invoice-item-${label}.csv`
@@ -483,7 +479,6 @@ export async function GET(request: NextRequest) {
       ? `order-invoice-item-${label}.csv`
       : `order-invoice-${label}.csv`;
 
-  const after = request.nextUrl.searchParams.get("after")?.trim() ?? "";
   const includeHeader = request.nextUrl.searchParams.get("header") !== "0";
   const parts: string[] = [];
   const write = (text: string) => {
@@ -491,17 +486,72 @@ export async function GET(request: NextRequest) {
   };
   let hasMore = false;
   let nextCursor = "";
+  let totalCsvRows = 0;
 
   try {
     if (includeHeader) write(formatCsvHeaderLine(csvHeaders));
+    if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
+
+    if (historyPage) {
+      const pageSize = report === "invoice-item" ? DUMP_ITEM_EXPORT_ORDERS : DUMP_HISTORY_INVOICE_PAGE_SIZE;
+      const fetchedHistory = await prisma.adaptPurchaseHistory.findMany({
+        where: { companyId },
+        orderBy: [{ invoiceDate: "desc" }, { id: "desc" }],
+        take: pageSize + 1,
+        ...(cursorId ? { skip: 1, cursor: { id: cursorId, companyId } } : {}),
+        select: HISTORY_DUMP_SELECT,
+      });
+      hasMore = fetchedHistory.length > pageSize;
+      const invoices = hasMore ? fetchedHistory.slice(0, pageSize) : fetchedHistory;
+      if (hasMore) nextCursor = DUMP_HISTORY_CURSOR_PREFIX + invoices.at(-1)!.id;
+      for (const invoice of invoices) {
+        const location = invoice.companyLocation?.companyId === companyId ? invoice.companyLocation : null;
+        const history = {
+          ...invoice,
+          contact: invoice.contact.companyId === companyId ? invoice.contact : null,
+          locationName: invoice.locationName || location?.name || null,
+        };
+        if (report === "invoice-item") {
+          for (const row of createImportedInvoiceItemRows(history)) {
+            write(formatCsvDataLine(csvHeaders, row));
+          }
+        } else {
+          const row = createImportedInvoiceRow(history, location?.erpnextCompany || invoice.company.name);
+          write(formatCsvDataLine(csvHeaders, row));
+        }
+      }
+    } else {
+      const [liveRows, importedInvoices, merchantUsers, userToGroup, creatorUsers] = await Promise.all([
+        fullDump
+          ? report === "invoice" && !after ? prisma.order.count({ where: orderWhere }) : 0
+          : report === "invoice-item"
+            ? prisma.orderLineItem.count({ where: { order: orderWhere } })
+            : prisma.order.count({ where: orderWhere }),
+        fullDump && report === "invoice" && !after ? prisma.adaptPurchaseHistory.count({ where: { companyId } }) : 0,
+        prisma.user.findMany({
+          where: { companyId, couponCodes: { isEmpty: false } },
+          select: { id: true, knownName: true, name: true, email: true, couponCodes: true },
+        }),
+        getMerchantGroupUserMap(companyId),
+        prisma.user.findMany({
+          where: { companyId, OR: [{ shopifyUserIds: { isEmpty: false } }, { erpnextUsername: { not: null } }] },
+          select: { email: true, shopifyUserIds: true, erpnextUsername: true },
+        }),
+      ]);
+      totalCsvRows = liveRows + importedInvoices;
+      const couponToMerchant = buildCouponToMerchantMap(merchantUsers, userToGroup);
+      const shopifyUserIdToEmail = buildShopifyUserIdToEmailMap(creatorUsers);
+      const erpnextUsernameToEmail = buildErpnextUsernameToEmailMap(creatorUsers);
+      const pagination: Pick<Prisma.OrderFindManyArgs, "skip" | "cursor"> = cursorId
+        ? { skip: 1, cursor: fullDump ? { id: cursorId, companyId } : { id: cursorId } }
+        : {};
 
         if (report === "invoice-item") {
-            if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
             const fetchedOrders = await prisma.order.findMany({
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
               take: DUMP_ITEM_EXPORT_ORDERS + 1,
-              ...(after ? { skip: 1, cursor: { id: after } } : {}),
+              ...pagination,
               include: ORDER_DUMP_ITEM_INCLUDE,
             });
             hasMore = fetchedOrders.length > DUMP_ITEM_EXPORT_ORDERS;
@@ -559,7 +609,6 @@ export async function GET(request: NextRequest) {
         rawPayload: order.rawPayload,
         name: order.name,
         erpnextInvoiceId: order.erpnextInvoiceId,
-        erpnextInstance: order.companyLocation.erpnextInstance,
         allowLiveErpLookup: false,
         lineItems: order.lineItems.map((item) => ({
           sku: item.productItem.sku,
@@ -650,12 +699,11 @@ export async function GET(request: NextRequest) {
             }, exportConcurrency);
             }
         } else {
-            if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
             const fetchedOrders = await prisma.order.findMany({
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
               take: DUMP_INVOICE_EXPORT_ORDERS + 1,
-              ...(after ? { skip: 1, cursor: { id: after } } : {}),
+              ...pagination,
               include: ORDER_DUMP_INVOICE_INCLUDE,
             });
             hasMore = fetchedOrders.length > DUMP_INVOICE_EXPORT_ORDERS;
@@ -775,6 +823,12 @@ export async function GET(request: NextRequest) {
             }, exportConcurrency);
             }
         }
+
+      if (fullDump && !hasMore) {
+        hasMore = true;
+        nextCursor = DUMP_HISTORY_CURSOR_PREFIX;
+      }
+    }
 
     if (!hasMore && !request.signal.aborted) {
       await logReportDownload({

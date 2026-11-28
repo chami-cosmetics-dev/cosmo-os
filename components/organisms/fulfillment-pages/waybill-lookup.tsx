@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Download, Eye, Loader2, PackageSearch, Plus, RefreshCw, Search, Trash2, Truck, Upload } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
@@ -28,6 +29,7 @@ import type {
   WaybillLookupPageData,
   WaybillPendingRow,
 } from "@/lib/page-data/waybill-lookup-types";
+import { TASK_REMINDER_WAYBILL_ID_PARAM } from "@/lib/task-reminder-links";
 
 type LookupWaybill = {
   id: string;
@@ -173,6 +175,9 @@ export function WaybillLookupFulfillmentPage({
   const [exporting, setExporting] = useState(false);
   const [selectedDetails, setSelectedDetails] = useState<DetailsTarget | null>(null);
   const [activeTab, setActiveTab] = useState<"pending" | "uploads">("pending");
+  const searchParams = useSearchParams();
+  const deepLinkWaybillId = searchParams.get(TASK_REMINDER_WAYBILL_ID_PARAM)?.trim() ?? "";
+  const openedDeepLinkRef = useRef<string | null>(null);
 
   const isBusy =
     loading ||
@@ -219,6 +224,60 @@ export function WaybillLookupFulfillmentPage({
     void loadPageData({ page: 1, uploadsPage: 1 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial fetch only when no server data
   }, [initialData]);
+
+  useEffect(() => {
+    if (!deepLinkWaybillId) return;
+    if (openedDeepLinkRef.current === deepLinkWaybillId) return;
+
+    const pendingHit = pageData?.pending.find((row) => row.id === deepLinkWaybillId);
+    if (pendingHit) {
+      openedDeepLinkRef.current = deepLinkWaybillId;
+      setActiveTab("pending");
+      setSelectedDetails({
+        kind: "pending",
+        waybill: pendingHit,
+        matchStatus: pendingHit.matchStatus,
+        order: pendingHit.order,
+      });
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const params = new URLSearchParams({ waybillId: deepLinkWaybillId });
+        const response = await fetch(`/api/admin/waybills/search?${params.toString()}`);
+        const data = (await response.json().catch(() => null)) as
+          | (LookupResult & { error?: string })
+          | null;
+        if (cancelled) return;
+        if (!response.ok || !data) {
+          notify.error(data?.error ?? "Could not open waybill details.");
+          openedDeepLinkRef.current = deepLinkWaybillId;
+          return;
+        }
+        const match = data.waybills.find((row) => row.id === deepLinkWaybillId) ?? data.waybills[0];
+        if (!match) {
+          notify.error("Waybill not found.");
+          openedDeepLinkRef.current = deepLinkWaybillId;
+          return;
+        }
+        openedDeepLinkRef.current = deepLinkWaybillId;
+        setResult(data);
+        setInvoice(match.invoiceNumber || match.waybillNo);
+        setSelectedDetails({ kind: "search", waybill: match });
+      } catch {
+        if (!cancelled) {
+          notify.error("Could not open waybill details.");
+          openedDeepLinkRef.current = deepLinkWaybillId;
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deepLinkWaybillId, pageData?.pending]);
 
   async function searchInvoice(nextInvoice = invoice) {
     const trimmed = nextInvoice.trim();
