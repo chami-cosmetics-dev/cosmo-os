@@ -33,6 +33,7 @@ import {
   orderDumpCursor,
   orderDumpStartCursor,
   parseHistoricalDumpCursor,
+  resolveDumpBrand,
   withCosmoDataSource,
 } from "@/lib/reports/adapt-history-dump";
 import { dumpInvoiceShippingRuleFromStored } from "@/lib/reports/dump-invoice-shipping";
@@ -370,6 +371,7 @@ const ORDER_DUMP_ITEM_INCLUDE = {
 const YEAR_HISTORY_DUMP_SELECT = {
   id: true,
   salesInvoiceNo: true,
+  salesInvoiceMasterId: true,
   invoiceDate: true,
   ttlAmount: true,
   locationName: true,
@@ -500,7 +502,7 @@ export async function GET(request: NextRequest) {
 
     if (yearHistoryDump && adaptWhere) {
       const yearCursor = parseHistoricalDumpCursor(after);
-      const [adaptInvoiceCount, liveRows, merchantUsers, userToGroup, creatorUsers] = await Promise.all([
+      const [adaptInvoiceCount, liveRows, merchantUsers, userToGroup, creatorUsers, vendors] = await Promise.all([
         prisma.adaptPurchaseHistory.count({ where: adaptWhere }),
         report === "invoice-item"
           ? prisma.orderLineItem.count({ where: { order: orderWhere } })
@@ -514,11 +516,17 @@ export async function GET(request: NextRequest) {
           where: { companyId, OR: [{ shopifyUserIds: { isEmpty: false } }, { erpnextUsername: { not: null } }] },
           select: { email: true, shopifyUserIds: true, erpnextUsername: true },
         }),
+        prisma.vendor.findMany({
+          where: { companyId },
+          select: { name: true },
+          orderBy: { name: "asc" },
+        }),
       ]);
       totalCsvRows = adaptInvoiceCount + liveRows;
       const couponToMerchant = buildCouponToMerchantMap(merchantUsers, userToGroup);
       const shopifyUserIdToEmail = buildShopifyUserIdToEmailMap(creatorUsers);
       const erpnextUsernameToEmail = buildErpnextUsernameToEmailMap(creatorUsers);
+      const vendorNames = vendors.map((vendor) => vendor.name);
 
       let orderPhase = yearCursor.phase === "order";
       let orderCursorId = yearCursor.phase === "order" ? yearCursor.id : "";
@@ -552,6 +560,7 @@ export async function GET(request: NextRequest) {
             const contact = invoice.contact?.companyId === companyId ? invoice.contact : null;
             const input = {
               salesInvoiceNo: invoice.salesInvoiceNo,
+              salesInvoiceMasterId: invoice.salesInvoiceMasterId,
               invoiceDate: invoice.invoiceDate,
               ttlAmount: invoice.ttlAmount,
               locationName: invoice.locationName || location?.name || null,
@@ -562,11 +571,11 @@ export async function GET(request: NextRequest) {
               contact,
             };
             if (report === "invoice-item") {
-              for (const row of mapAdaptInvoiceToDumpItemRows(input, catalog)) {
+              for (const row of mapAdaptInvoiceToDumpItemRows(input, catalog, vendorNames)) {
                 write(formatCsvDataLine(csvHeaders, row));
               }
             } else {
-              write(formatCsvDataLine(csvHeaders, mapAdaptInvoiceToDumpInvoiceRow(input, catalog)));
+              write(formatCsvDataLine(csvHeaders, mapAdaptInvoiceToDumpInvoiceRow(input, catalog, vendorNames)));
             }
           }
 
@@ -708,12 +717,17 @@ export async function GET(request: NextRequest) {
                   customerPhone: resolveCustomerPhone(order) ?? null,
                   sku: item.productItem.sku,
                   barcode: item.productItem.barcode,
-                  brand: getPayloadLineItemBrand({
-                    rawPayload: order.rawPayload,
-                    shopifyLineItemId: item.shopifyLineItemId,
-                    sku: item.productItem.sku,
-                    index,
-                  }) ?? item.productItem.vendor?.name ?? null,
+                  brand: resolveDumpBrand({
+                    catalogBrand: item.productItem.vendor?.name,
+                    payloadBrand: getPayloadLineItemBrand({
+                      rawPayload: order.rawPayload,
+                      shopifyLineItemId: item.shopifyLineItemId,
+                      sku: item.productItem.sku,
+                      index,
+                    }),
+                    productTitle: item.productItem.productTitle,
+                    vendorNames,
+                  }),
                   productTitle: item.productItem.productTitle,
                   quantity: item.quantity,
                   unitPrice,
@@ -865,7 +879,7 @@ export async function GET(request: NextRequest) {
         }
       }
     } else {
-      const [totalOrders, merchantUsers, userToGroup, creatorUsers, totalLineItems] = await Promise.all([
+      const [totalOrders, merchantUsers, userToGroup, creatorUsers, totalLineItems, vendors] = await Promise.all([
         prisma.order.count({ where: orderWhere }),
         prisma.user.findMany({
           where: {
@@ -898,10 +912,16 @@ export async function GET(request: NextRequest) {
         report === "invoice-item"
           ? prisma.orderLineItem.count({ where: { order: orderWhere } })
           : Promise.resolve(0),
+        prisma.vendor.findMany({
+          where: { companyId },
+          select: { name: true },
+          orderBy: { name: "asc" },
+        }),
       ]);
       const couponToMerchant = buildCouponToMerchantMap(merchantUsers, userToGroup);
       const shopifyUserIdToEmail = buildShopifyUserIdToEmailMap(creatorUsers);
       const erpnextUsernameToEmail = buildErpnextUsernameToEmailMap(creatorUsers);
+      const vendorNames = vendors.map((vendor) => vendor.name);
       totalCsvRows = report === "invoice-item" ? totalLineItems : totalOrders;
 
         if (report === "invoice-item") {
@@ -1027,12 +1047,17 @@ export async function GET(request: NextRequest) {
           customerPhone: resolveCustomerPhone(order) ?? null,
           sku: item.productItem.sku,
           barcode: item.productItem.barcode,
-          brand: getPayloadLineItemBrand({
-            rawPayload: order.rawPayload,
-            shopifyLineItemId: item.shopifyLineItemId,
-            sku: item.productItem.sku,
-            index,
-          }) ?? item.productItem.vendor?.name ?? null,
+          brand: resolveDumpBrand({
+            catalogBrand: item.productItem.vendor?.name,
+            payloadBrand: getPayloadLineItemBrand({
+              rawPayload: order.rawPayload,
+              shopifyLineItemId: item.shopifyLineItemId,
+              sku: item.productItem.sku,
+              index,
+            }),
+            productTitle: item.productItem.productTitle,
+            vendorNames,
+          }),
           productTitle: item.productItem.productTitle,
           quantity: item.quantity,
           unitPrice,

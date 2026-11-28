@@ -8,10 +8,13 @@ import {
   classifyAdaptLine,
   getHistoricalOrderInvoiceCsvHeaders,
   getHistoricalOrderInvoiceItemCsvHeaders,
+  inferBrandFromProductTitle,
   mapAdaptInvoiceToDumpInvoiceRow,
   mapAdaptInvoiceToDumpItemRows,
   matchAdaptCatalog,
+  normalizeAdaptSku,
   parseHistoricalDumpCursor,
+  resolveDumpBrand,
   splitAdaptLines,
   withCosmoDataSource,
 } from "@/lib/reports/adapt-history-dump"
@@ -42,7 +45,9 @@ describe("adapt-history-dump", () => {
     const catalog = buildAdaptCatalogMap([
       { sku: "ACN03_1", barcode: "111", vendorName: "Brand A" },
       { sku: "JOV65_1", barcode: "222", vendorName: "Brand B" },
+      { sku: "SSP_160", barcode: "333", vendorName: "Ordinary" },
     ])
+    expect(normalizeAdaptSku("SSP - 160")).toBe("SSP_160")
     expect(matchAdaptCatalog(catalog, "acn03-1")).toMatchObject({
       barcode: "111",
       brand: "Brand A",
@@ -53,7 +58,25 @@ describe("adapt-history-dump", () => {
       brand: "Brand B",
       match: "oi_mapped_to_1",
     })
+    expect(matchAdaptCatalog(catalog, "SSP - 160")).toMatchObject({
+      barcode: "333",
+      brand: "Ordinary",
+      match: "exact",
+    })
     expect(matchAdaptCatalog(catalog, "MISSING")).toMatchObject({ match: "none" })
+  })
+
+  it("infers brand from product title when catalog brand is blank", () => {
+    expect(inferBrandFromProductTitle("THE ORDINARY Niacinamide 30ml", ["OGX", "The Ordinary"])).toBe(
+      "The Ordinary",
+    )
+    expect(
+      resolveDumpBrand({
+        catalogBrand: "",
+        productTitle: "OGX Coconut Curls Conditioner 385ml*OI",
+        vendorNames: ["OGX", "Cantu"],
+      }),
+    ).toBe("OGX")
   })
 
   it("adds data_source to historical headers only", () => {
@@ -83,6 +106,7 @@ describe("adapt-history-dump", () => {
     ])
     const input = {
       salesInvoiceNo: "ADAPT-1",
+      salesInvoiceMasterId: "102222",
       invoiceDate: new Date("2019-06-15T10:00:00+05:30"),
       ttlAmount: new Prisma.Decimal("250.00"),
       locationName: "Colombo",
@@ -93,6 +117,7 @@ describe("adapt-history-dump", () => {
         { itemCode: "coupon", itemName: "MER9", unitPrice: "0", quantity: 1 },
         { itemCode: "shipping", itemName: "Courier", unitPrice: "50", quantity: 1 },
         { itemCode: "SKU_1", itemName: "Serum", unitPrice: "100", quantity: 2 },
+        { itemCode: "MISS*OI", itemName: "OGX Coconut Curls Conditioner 385ml*OI", unitPrice: "50", quantity: 1 },
       ],
       contact: {
         name: "Ada",
@@ -105,19 +130,21 @@ describe("adapt-history-dump", () => {
     const invoice = mapAdaptInvoiceToDumpInvoiceRow(input, catalog)
     expect(invoice.data_source).toBe(ADAPT_HISTORY_DATA_SOURCE)
     expect(invoice.invoice_no).toBe("ADAPT-1")
+    expect(invoice.erp_invoice_id).toBe("102222")
     expect(invoice.source_name).toBe("adapt")
-    expect(invoice.item_count).toBe("1")
+    expect(invoice.item_count).toBe("2")
     expect(invoice.grand_total).toBe("250.00")
     expect(invoice.shipping_total).toBe("50.00")
     expect(invoice.coupon_code).toBe("MER9")
     expect(invoice.customer_phone).toBe("0771111111")
     expect(invoice.pos_sale).toBe("0")
 
-    const items = mapAdaptInvoiceToDumpItemRows(input, catalog)
-    expect(items).toHaveLength(1)
+    const items = mapAdaptInvoiceToDumpItemRows(input, catalog, ["OGX", "Cantu"])
+    expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({
       data_source: ADAPT_HISTORY_DATA_SOURCE,
       invoice_no: "ADAPT-1",
+      erp_invoice_id: "102222",
       sku: "SKU_1",
       barcode: "B1",
       brand: "Brand",
@@ -126,6 +153,11 @@ describe("adapt-history-dump", () => {
       after_discount_total: "200.00",
       grand_total: "250.00",
       source_name: "adapt",
+    })
+    expect(items[1]).toMatchObject({
+      sku: "MISS*OI",
+      brand: "OGX",
+      erp_invoice_id: "102222",
     })
   })
 

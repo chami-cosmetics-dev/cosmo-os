@@ -28,6 +28,7 @@ export type AdaptCatalogHit = {
 
 export type AdaptDumpInvoiceInput = {
   salesInvoiceNo: string | null
+  salesInvoiceMasterId?: string | null
   invoiceDate: Date
   ttlAmount: Prisma.Decimal | string | number | null
   locationName: string | null
@@ -89,7 +90,42 @@ export function classifyAdaptLine(item: AdaptDumpLine): "product" | "coupon" | "
 }
 
 export function normalizeAdaptSku(value: string) {
-  return value.trim().toUpperCase().replace(/-/g, "_")
+  return value.trim().toUpperCase().replace(/-/g, "_").replace(/\s+/g, "")
+}
+
+/** Longest Vendor.name prefix that matches a product title / Adapt item name. */
+export function inferBrandFromProductTitle(title: string, vendorNames: string[]) {
+  const normalizedTitle = title.trim().replace(/\s+/g, " ")
+  if (!normalizedTitle || vendorNames.length === 0) return ""
+  const upper = normalizedTitle.toUpperCase()
+  let best = ""
+  for (const name of vendorNames) {
+    const brand = name.trim()
+    if (!brand) continue
+    const brandUpper = brand.toUpperCase()
+    if (
+      upper === brandUpper ||
+      upper.startsWith(`${brandUpper} `) ||
+      upper.startsWith(`${brandUpper}-`) ||
+      upper.startsWith(`${brandUpper}*`)
+    ) {
+      if (brand.length > best.length) best = brand
+    }
+  }
+  return best
+}
+
+export function resolveDumpBrand(input: {
+  catalogBrand?: string | null
+  payloadBrand?: string | null
+  productTitle?: string | null
+  vendorNames?: string[]
+}) {
+  const catalog = input.catalogBrand?.trim() ?? ""
+  if (catalog) return catalog
+  const payload = input.payloadBrand?.trim() ?? ""
+  if (payload) return payload
+  return inferBrandFromProductTitle(input.productTitle ?? "", input.vendorNames ?? [])
 }
 
 function betterCatalogHit(current: AdaptCatalogHit | undefined, next: AdaptCatalogHit): AdaptCatalogHit {
@@ -122,10 +158,18 @@ export function matchAdaptCatalog(exact: Map<string, AdaptCatalogHit>, itemCode:
   const normalized = normalizeAdaptSku(raw)
   const direct = exact.get(normalized)
   if (direct) return { barcode: direct.barcode, brand: direct.brand, match: "exact" as const }
+
   const oi = normalized.match(/^(.*)\*OI$/)
-  if (oi?.[1]) {
-    const mapped = exact.get(`${oi[1]}_1`) ?? exact.get(`${oi[1]}1`)
-    if (mapped) return { barcode: mapped.barcode, brand: mapped.brand, match: "oi_mapped_to_1" as const }
+  const base = oi?.[1] ?? normalized
+  const candidates = [`${base}_1`, `${base}1`, base]
+  for (const key of candidates) {
+    const mapped = exact.get(key)
+    if (!mapped) continue
+    return {
+      barcode: mapped.barcode,
+      brand: mapped.brand,
+      match: oi ? ("oi_mapped_to_1" as const) : ("base_mapped" as const),
+    }
   }
   return { barcode: "", brand: "", match: "none" as const }
 }
@@ -185,6 +229,7 @@ export function splitAdaptLines(lineItems: Prisma.JsonValue | null | undefined) 
 export function mapAdaptInvoiceToDumpInvoiceRow(
   input: AdaptDumpInvoiceInput,
   catalog: Map<string, AdaptCatalogHit> = new Map(),
+  vendorNames: string[] = [],
 ): HistoricalInvoiceCsvRow {
   const { products, merchantCoupon, posSale, shippingTotal } = splitAdaptLines(input.lineItems)
   const invoiceNo = input.salesInvoiceNo?.trim() || ""
@@ -205,7 +250,7 @@ export function mapAdaptInvoiceToDumpInvoiceRow(
 
   const row = createOrderInvoiceRow({
     invoiceNo,
-    erpInvoiceId: null,
+    erpInvoiceId: input.salesInvoiceMasterId?.trim() || null,
     sourceName: "adapt",
     merchantCouponCode: merchantCoupon || null,
     couponCode: merchantCoupon || null,
@@ -258,6 +303,7 @@ export function mapAdaptInvoiceToDumpInvoiceRow(
 export function mapAdaptInvoiceToDumpItemRows(
   input: AdaptDumpInvoiceInput,
   catalog: Map<string, AdaptCatalogHit> = new Map(),
+  vendorNames: string[] = [],
 ): HistoricalInvoiceItemCsvRow[] {
   const { products, merchantCoupon, posSale } = splitAdaptLines(input.lineItems)
   const invoiceNo = input.salesInvoiceNo?.trim() || ""
@@ -269,15 +315,22 @@ export function mapAdaptInvoiceToDumpItemRows(
   const paymentGateway = input.paymentMethod?.trim() ?? ""
   const financialStatus = input.financialStatus?.trim() || "paid"
   const merchantName = input.merchantKnownName?.trim() ?? ""
+  const erpInvoiceId = input.salesInvoiceMasterId?.trim() || null
 
   return products.map((item) => {
     const qty = toNumber(item.quantity)
     const unitPrice = toNumber(item.unitPrice)
     const unitTotal = qty * unitPrice
     const catalogHit = matchAdaptCatalog(catalog, item.itemCode)
+    const productTitle = String(item.itemName ?? "").trim()
+    const brand = resolveDumpBrand({
+      catalogBrand: catalogHit.brand,
+      productTitle,
+      vendorNames,
+    })
     const row = createOrderInvoiceItemRow({
       invoiceNo,
-      erpInvoiceId: null,
+      erpInvoiceId,
       sourceName: "adapt",
       merchantCouponCode: merchantCoupon || null,
       couponCode: null,
@@ -288,8 +341,8 @@ export function mapAdaptInvoiceToDumpItemRows(
       customerPhone,
       sku: item.itemCode?.trim() || "",
       barcode: catalogHit.barcode,
-      brand: catalogHit.brand,
-      productTitle: String(item.itemName ?? "").trim(),
+      brand,
+      productTitle,
       quantity: qty,
       unitPrice: money(unitPrice),
       discountedPrice: money(unitPrice),
