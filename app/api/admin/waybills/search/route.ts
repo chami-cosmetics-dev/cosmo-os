@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
+  findOrderWaybillDetailsById,
   findOrderWaybillsByInvoice,
   normalizeInvoiceLookup,
   saveOrderWaybill,
 } from "@/lib/order-waybills";
 import { requireAnyPermission } from "@/lib/rbac";
+import { cuidSchema } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -40,6 +42,19 @@ async function requireWaybillAuth() {
 export async function GET(request: NextRequest) {
   const auth = await requireWaybillAuth();
   if (!auth.ok) return auth.response;
+
+  const waybillIdRaw = request.nextUrl.searchParams.get("waybillId")?.trim() ?? "";
+  if (waybillIdRaw) {
+    const parsedId = cuidSchema.safeParse(waybillIdRaw);
+    if (!parsedId.success) {
+      return NextResponse.json({ error: "Invalid waybill id." }, { status: 400 });
+    }
+    const byId = await findOrderWaybillDetailsById(auth.companyId, parsedId.data);
+    if (!byId) {
+      return NextResponse.json({ error: "Waybill not found." }, { status: 404 });
+    }
+    return NextResponse.json(byId);
+  }
 
   const query =
     request.nextUrl.searchParams.get("q") ??

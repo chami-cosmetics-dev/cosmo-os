@@ -18,7 +18,7 @@ import {
 import { emailsForPurchaseLookup } from "@/lib/contact-purchase-lookup";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 export type BrandPurchaseRank = {
   contactId: string;
@@ -33,12 +33,45 @@ export type BrandPurchaseScanOptions = {
 
 const CONTACT_SCOPE_IN_MAX = 20_000;
 
-function adaptLineItemsBrandWhere(
-  needle: string
-): Prisma.AdaptPurchaseHistoryWhereInput {
-  return {
-    lineItems: { string_contains: needle, mode: "insensitive" },
-  };
+type AdaptBrandRow = {
+  id: string;
+  contactId: string;
+  lineItems: unknown;
+  financialStatus: string | null;
+};
+
+/**
+ * Postgres has no lower(jsonb). Prisma `string_contains` + `mode: insensitive`
+ * becomes lower(jsonb) and throws — use text cast + position instead.
+ */
+async function fetchAdaptBrandPage(input: {
+  companyId: string;
+  needle: string;
+  take: number;
+  cursor?: string;
+  contactIds?: string[];
+}): Promise<AdaptBrandRow[]> {
+  const needle = input.needle.trim();
+  if (!needle) return [];
+
+  const contactFilter =
+    input.contactIds && input.contactIds.length > 0
+      ? Prisma.sql`AND "contactId" IN (${Prisma.join(input.contactIds)})`
+      : Prisma.empty;
+  const cursorFilter = input.cursor
+    ? Prisma.sql`AND id > ${input.cursor}`
+    : Prisma.empty;
+
+  return prisma.$queryRaw<AdaptBrandRow[]>`
+    SELECT id, "contactId", "lineItems", "financialStatus"
+    FROM "AdaptPurchaseHistory"
+    WHERE "companyId" = ${input.companyId}
+      AND position(lower(${needle}) in lower("lineItems"::text)) > 0
+      ${contactFilter}
+      ${cursorFilter}
+    ORDER BY id ASC
+    LIMIT ${input.take}
+  `;
 }
 
 function lineSpend(quantity: number, price: string | number): number {
@@ -157,13 +190,6 @@ export async function findContactsByPurchasedBrandRanked(
 
   const spendByContact = new Map<string, number>();
 
-  type AdaptBrandRow = {
-    id: string;
-    contactId: string;
-    lineItems: unknown;
-    financialStatus: string | null;
-  };
-
   const applyAdaptPage = (adaptRows: AdaptBrandRow[]) => {
     for (const row of adaptRows) {
       if (!row.contactId) continue;
@@ -186,27 +212,16 @@ export async function findContactsByPurchasedBrandRanked(
     }
   };
 
-  const adaptSelect = {
-    id: true,
-    contactId: true,
-    lineItems: true,
-    financialStatus: true,
-  } as const;
-
   if (scopedIds) {
     for (const chunk of chunkArray(scopedIds, INSIGHT_LOOKUP_CHUNK)) {
       await forEachIdPage<AdaptBrandRow>(
         ({ take, cursor }) =>
-          prisma.adaptPurchaseHistory.findMany({
-            where: {
-              companyId,
-              contactId: { in: chunk },
-              ...adaptLineItemsBrandWhere(needle),
-            },
-            select: adaptSelect,
-            orderBy: { id: "asc" },
+          fetchAdaptBrandPage({
+            companyId,
+            needle,
             take,
-            ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+            cursor,
+            contactIds: chunk,
           }),
         applyAdaptPage
       );
@@ -214,12 +229,11 @@ export async function findContactsByPurchasedBrandRanked(
   } else {
     await forEachIdPage<AdaptBrandRow>(
       ({ take, cursor }) =>
-        prisma.adaptPurchaseHistory.findMany({
-          where: { companyId, ...adaptLineItemsBrandWhere(needle) },
-          select: adaptSelect,
-          orderBy: { id: "asc" },
+        fetchAdaptBrandPage({
+          companyId,
+          needle,
           take,
-          ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+          cursor,
         }),
       applyAdaptPage
     );

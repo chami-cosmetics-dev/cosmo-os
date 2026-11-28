@@ -252,6 +252,21 @@ export async function findOrderWaybillsByInvoice(
   };
 }
 
+/** Resolve Waybill Details payload by OrderWaybill id (reminder deep-link). */
+export async function findOrderWaybillDetailsById(
+  companyId: string,
+  waybillId: string,
+): Promise<OrderWaybillLookupResult | null> {
+  const row = await prisma.orderWaybill.findFirst({
+    where: { id: waybillId, companyId },
+    select: { waybillNo: true, invoiceNumber: true },
+  });
+  if (!row) return null;
+  const query = row.waybillNo.trim() || row.invoiceNumber.trim();
+  if (!query) return null;
+  return findOrderWaybillsByInvoice(companyId, query);
+}
+
 export async function saveOrderWaybill(input: {
   companyId: string;
   orderId?: string | null;

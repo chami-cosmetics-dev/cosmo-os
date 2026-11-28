@@ -49,6 +49,7 @@ const CATEGORY_ORDER = [
   "stock_request_restocked",
   "item_creation",
   "shop_to_main",
+  "citypak_delivery_failed",
   "discontinued_pending",
   "discontinued_shopify_draft",
 ] as const;
@@ -69,6 +70,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   stock_request_restocked: "Wishlist items back in stock",
   item_creation: "Item creation workflow",
   shop_to_main: "Shop returns",
+  citypak_delivery_failed: "City Pack Delivery Failed",
   discontinued_pending: "Discontinued items pending",
   discontinued_shopify_draft: "Discontinued items to draft on Shopify",
 };
@@ -89,6 +91,7 @@ const CATEGORY_NODE_LABELS: Record<string, string> = {
   stock_request_restocked: "Back in stock",
   item_creation: "Item creation",
   shop_to_main: "Shop returns",
+  citypak_delivery_failed: "City Pack failed",
   discontinued_pending: "Discontinued pending",
   discontinued_shopify_draft: "Shopify draft",
 };

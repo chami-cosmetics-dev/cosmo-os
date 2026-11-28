@@ -57,6 +57,10 @@ export const REMINDER_BUBBLE_PERMISSIONS = [
     category: "item_creation" as const,
   },
   {
+    key: "reminders.citypak_delivery_failed",
+    category: "citypak_delivery_failed" as const,
+  },
+  {
     key: "reminders.discontinued_pending",
     category: "discontinued_pending" as const,
   },
@@ -90,6 +94,7 @@ const REMINDER_BUBBLE_LABELS: Record<ReminderBubbleCategory, string> = {
   purchasing_rop_threshold: "Purchasing ROP threshold",
   stock_request_restocked: "Wishlist items back in stock",
   item_creation: "Item creation workflow",
+  citypak_delivery_failed: "City Pack Delivery Failed",
   discontinued_pending: "Discontinued Items pending (+ bell notification)",
   discontinued_shopify_draft: "Discontinued Items for Shopify draft (+ bell notification)",
 };
