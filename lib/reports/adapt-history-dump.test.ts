@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest"
 
 import {
   ADAPT_HISTORY_DATA_SOURCE,
+  COSMETICS_IMPORT_DATA_SOURCE,
   COSMO_OS_DATA_SOURCE,
+  FILE_IMPORT_DATA_SOURCE,
+  adaptDumpSourceLabels,
   buildAdaptCatalogMap,
   classifyAdaptLine,
   getHistoricalOrderInvoiceCsvHeaders,
@@ -152,6 +155,8 @@ describe("adapt-history-dump", () => {
     expect(invoice.shipping_total).toBe("50.00")
     expect(invoice.coupon_code).toBe("MER9")
     expect(invoice.customer_phone).toBe("771111111")
+    expect(invoice.last_purchase_date).toBe("")
+    expect(invoice.allocated_merchant).toBe("")
     expect(invoice.pos_sale).toBe("0")
 
     const items = mapAdaptInvoiceToDumpItemRows(input, catalog, ["OGX", "Cantu"])
@@ -168,6 +173,8 @@ describe("adapt-history-dump", () => {
       after_discount_total: "200.00",
       grand_total: "250.00",
       source_name: "adapt",
+      last_purchase_date: "",
+      allocated_merchant: "",
     })
     expect(items[1]).toMatchObject({
       sku: "MISS*OI",
@@ -198,5 +205,66 @@ describe("adapt-history-dump", () => {
       invoice_no: "1",
       data_source: COSMO_OS_DATA_SOURCE,
     })
+  })
+
+  it("labels File import and Cosmetics origins in dump source columns", () => {
+    expect(adaptDumpSourceLabels("vault_file_import")).toEqual({
+      sourceName: "File import",
+      dataSource: FILE_IMPORT_DATA_SOURCE,
+    })
+    expect(adaptDumpSourceLabels("vault_supplement_import", "vsupp-direct-1")).toEqual({
+      sourceName: "Cosmetics",
+      dataSource: COSMETICS_IMPORT_DATA_SOURCE,
+    })
+    expect(adaptDumpSourceLabels("adapt")).toEqual({
+      sourceName: "adapt",
+      dataSource: ADAPT_HISTORY_DATA_SOURCE,
+    })
+
+    const fileInvoice = mapAdaptInvoiceToDumpInvoiceRow({
+      salesInvoiceNo: "60014479",
+      invoiceDate: new Date("2026-03-01T10:00:00+05:30"),
+      ttlAmount: new Prisma.Decimal("6000"),
+      locationName: "Cosmetics.lk New Web",
+      paymentMethod: "Cash on Delivery (COD)",
+      merchantKnownName: "DM - General",
+      financialStatus: "completed",
+      origin: "vault_file_import",
+      importBatchId: "vsupp-1795856956685",
+      lineItems: [{ itemCode: "NW017-2", itemName: "Nature Way", unitPrice: "6000", quantity: 1 }],
+      contact: {
+        name: "Test",
+        phoneNumber: "0713329839",
+        lastPurchaseAt: new Date("2026-03-01T00:00:00+05:30"),
+        assignedMerchant: "Sandali(MER91)",
+      },
+    })
+    expect(fileInvoice.source_name).toBe("File import")
+    expect(fileInvoice.data_source).toBe(FILE_IMPORT_DATA_SOURCE)
+    expect(fileInvoice.last_purchase_date).toBe("2026-03-01")
+    expect(fileInvoice.allocated_merchant).toBe("Sandali(MER91)")
+
+    const fileItems = mapAdaptInvoiceToDumpItemRows({
+      salesInvoiceNo: "60014479",
+      invoiceDate: new Date("2026-03-01T10:00:00+05:30"),
+      ttlAmount: new Prisma.Decimal("6000"),
+      locationName: "Cosmetics.lk New Web",
+      paymentMethod: "Cash on Delivery (COD)",
+      merchantKnownName: "DM - General",
+      financialStatus: "completed",
+      origin: "vault_file_import",
+      importBatchId: "vsupp-1795856956685",
+      lineItems: [{ itemCode: "NW017-2", itemName: "Nature Way", unitPrice: "6000", quantity: 1 }],
+      contact: {
+        name: "Test",
+        phoneNumber: "0713329839",
+        lastPurchaseAt: new Date("2026-03-01T00:00:00+05:30"),
+        assignedMerchant: "Sandali(MER91)",
+      },
+    })
+    expect(fileItems[0]?.source_name).toBe("File import")
+    expect(fileItems[0]?.data_source).toBe(FILE_IMPORT_DATA_SOURCE)
+    expect(fileItems[0]?.last_purchase_date).toBe("2026-03-01")
+    expect(fileItems[0]?.allocated_merchant).toBe("Sandali(MER91)")
   })
 })

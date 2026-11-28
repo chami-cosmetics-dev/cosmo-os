@@ -2,8 +2,13 @@ import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { loadKokoRefNumbersForOrders } from "@/lib/approval-koko-list";
+import { loadAssignedMerchantAliasMap } from "@/lib/customer-insight/allocation-summary";
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
+import {
+  dumpContactFieldsForPhone,
+  loadDumpContactFieldsByPhones,
+} from "@/lib/reports/dump-contact-fields";
 import {
   addDays,
   endOfDay,
@@ -39,6 +44,7 @@ import {
   type AdaptCatalogHit,
 } from "@/lib/reports/adapt-history-dump";
 import { dumpInvoiceShippingRuleFromStored } from "@/lib/reports/dump-invoice-shipping";
+import { fetchErpPaymentLegsByInvoice } from "@/lib/book-notes/erp-payment-legs";
 import {
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
@@ -78,18 +84,98 @@ function parseRangeKind(value: string | null): RangeKind {
   return "last-90";
 }
 
-function dumpOrderPaymentGateway(order: {
+function dumpOrderPaymentGateway(
+  order: {
+    paymentGatewayPrimary: string | null;
+    paymentGatewayNames: string[];
+    paymentEntries: Array<{ modeOfPayment: string | null }>;
+    rawPayload: unknown;
+    financialStatus?: string | null;
+  },
+  extraModes: string[] = [],
+) {
+  return resolveDumpPaymentGateway({
+    paymentGatewayPrimary: order.paymentGatewayPrimary,
+    paymentGatewayNames: order.paymentGatewayNames,
+    paymentEntryModes: [
+      ...order.paymentEntries.map((entry) => entry.modeOfPayment),
+      ...extraModes,
+    ],
+    rawPayload: order.rawPayload,
+    financialStatus: order.financialStatus,
+  });
+}
+
+type DumpErpPaymentOrder = {
+  id: string;
+  name: string | null;
+  erpnextInvoiceId: string | null;
   paymentGatewayPrimary: string | null;
   paymentGatewayNames: string[];
   paymentEntries: Array<{ modeOfPayment: string | null }>;
   rawPayload: unknown;
-}) {
-  return resolveDumpPaymentGateway({
-    paymentGatewayPrimary: order.paymentGatewayPrimary,
-    paymentGatewayNames: order.paymentGatewayNames,
-    paymentEntryModes: order.paymentEntries.map((entry) => entry.modeOfPayment),
-    rawPayload: order.rawPayload,
-  });
+  financialStatus: string | null;
+  companyLocation: {
+    erpnextInstance: {
+      baseUrl: string;
+      apiKey: string;
+      apiSecret: string;
+    } | null;
+  };
+};
+
+/** Live ERP Payment Entry modes for paid Cosmo rows that still lack a gateway. */
+async function loadDumpErpPaymentModes(orders: DumpErpPaymentOrder[]) {
+  const out = new Map<string, string[]>();
+  const missing = orders.filter((order) => !dumpOrderPaymentGateway(order));
+  if (missing.length === 0) return out;
+
+  type CredBucket = {
+    baseUrl: string;
+    apiKey: string;
+    apiSecret: string;
+    orders: DumpErpPaymentOrder[];
+  };
+  const byCred = new Map<string, CredBucket>();
+
+  for (const order of missing) {
+    const instance = order.companyLocation.erpnextInstance;
+    if (!instance?.baseUrl || !instance.apiKey || !instance.apiSecret) continue;
+    const key = `${instance.baseUrl}::${instance.apiKey}`;
+    const bucket = byCred.get(key) ?? {
+      baseUrl: instance.baseUrl,
+      apiKey: instance.apiKey,
+      apiSecret: instance.apiSecret,
+      orders: [],
+    };
+    bucket.orders.push(order);
+    byCred.set(key, bucket);
+  }
+
+  await Promise.all(
+    [...byCred.values()].map(async (bucket) => {
+      const invoiceNames = bucket.orders
+        .map((order) => order.erpnextInvoiceId?.trim() || order.name?.trim() || "")
+        .filter(Boolean);
+      if (invoiceNames.length === 0) return;
+      const legsByInvoice = await fetchErpPaymentLegsByInvoice({
+        baseUrl: bucket.baseUrl,
+        apiKey: bucket.apiKey,
+        apiSecret: bucket.apiSecret,
+        invoiceNames,
+      });
+      for (const order of bucket.orders) {
+        const invoice = order.erpnextInvoiceId?.trim() || order.name?.trim() || "";
+        if (!invoice) continue;
+        const modes = (legsByInvoice.get(invoice) ?? [])
+          .map((leg) => leg.modeOfPayment?.trim() ?? "")
+          .filter(Boolean);
+        if (modes.length > 0) out.set(order.id, modes);
+      }
+    }),
+  );
+
+  return out;
 }
 
 async function loadDumpBrandCatalog(companyId: string) {
@@ -436,8 +522,20 @@ const YEAR_HISTORY_DUMP_SELECT = {
   financialStatus: true,
   merchantKnownName: true,
   lineItems: true,
+  origin: true,
+  importBatchId: true,
   companyLocation: { select: { companyId: true, name: true } },
-  contact: { select: { companyId: true, name: true, phoneNumber: true, email: true, address: true } },
+  contact: {
+    select: {
+      companyId: true,
+      name: true,
+      phoneNumber: true,
+      email: true,
+      address: true,
+      lastPurchaseAt: true,
+      assignedMerchant: true,
+    },
+  },
 } satisfies Prisma.AdaptPurchaseHistorySelect;
 
 async function loadManualCreatorEmails(companyId: string, orderIds: string[]) {
@@ -559,7 +657,7 @@ export async function GET(request: NextRequest) {
 
     if (yearHistoryDump && adaptWhere) {
       const yearCursor = parseHistoricalDumpCursor(after);
-      const [adaptInvoiceCount, liveRows, merchantUsers, userToGroup, creatorUsers, vendors] = await Promise.all([
+      const [adaptInvoiceCount, liveRows, merchantUsers, userToGroup, creatorUsers, vendors, aliasToRoster] = await Promise.all([
         prisma.adaptPurchaseHistory.count({ where: adaptWhere }),
         report === "invoice-item"
           ? prisma.orderLineItem.count({ where: { order: orderWhere } })
@@ -578,6 +676,7 @@ export async function GET(request: NextRequest) {
           select: { name: true },
           orderBy: { name: "asc" },
         }),
+        loadAssignedMerchantAliasMap(companyId),
       ]);
       totalCsvRows = adaptInvoiceCount + liveRows;
       const couponToMerchant = buildCouponToMerchantMap(merchantUsers, userToGroup);
@@ -621,14 +720,16 @@ export async function GET(request: NextRequest) {
               merchantKnownName: invoice.merchantKnownName,
               financialStatus: invoice.financialStatus,
               lineItems: invoice.lineItems,
+              origin: invoice.origin,
+              importBatchId: invoice.importBatchId,
               contact,
             };
             if (report === "invoice-item") {
-              for (const row of mapAdaptInvoiceToDumpItemRows(input, catalog, vendorNames)) {
+              for (const row of mapAdaptInvoiceToDumpItemRows(input, catalog, vendorNames, aliasToRoster)) {
                 write(formatCsvDataLine(csvHeaders, row));
               }
             } else {
-              write(formatCsvDataLine(csvHeaders, mapAdaptInvoiceToDumpInvoiceRow(input, catalog, vendorNames)));
+              write(formatCsvDataLine(csvHeaders, mapAdaptInvoiceToDumpInvoiceRow(input, catalog, vendorNames, aliasToRoster)));
             }
           }
 
@@ -671,14 +772,25 @@ export async function GET(request: NextRequest) {
               orders.map((order) => order.id),
             );
             const catalog = await getBrandCatalog();
+            const erpPaymentModes = await loadDumpErpPaymentModes(orders);
+            const contactByPhone = await loadDumpContactFieldsByPhones(
+              companyId,
+              orders.map((order) => resolveCustomerPhone(order)),
+              aliasToRoster,
+            );
             await writeOrderedConcurrentLines(orders, write, async (order) => {
               const customerName =
                 getCustomerName(order.shippingAddress) ||
                 getCustomerName(order.billingAddress) ||
                 order.customerEmail ||
                 "";
-              const paymentGateway = dumpOrderPaymentGateway(order);
+              const paymentGateway = dumpOrderPaymentGateway(
+                order,
+                erpPaymentModes.get(order.id) ?? [],
+              );
               const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+              const customerPhone = resolveCustomerPhone(order) ?? null;
+              const contactFields = dumpContactFieldsForPhone(contactByPhone, customerPhone);
               const createdBy = resolveOrderCreatedByEmail({
                 sourceName: order.sourceName,
                 shopifyUserId: order.shopifyUserId,
@@ -768,7 +880,9 @@ export async function GET(request: NextRequest) {
                   locationName: order.companyLocation.name,
                   customerName,
                   customerEmail: order.customerEmail,
-                  customerPhone: resolveCustomerPhone(order) ?? null,
+                  customerPhone,
+                  lastPurchaseDate: contactFields.lastPurchaseDate,
+                  allocatedMerchant: contactFields.allocatedMerchant,
                   sku: item.productItem.sku,
                   barcode: item.productItem.barcode,
                   brand: dumpLineBrand({
@@ -825,13 +939,22 @@ export async function GET(request: NextRequest) {
               companyId,
               orders.map((order) => order.id),
             );
+            const erpPaymentModes = await loadDumpErpPaymentModes(orders);
+            const contactByPhone = await loadDumpContactFieldsByPhones(
+              companyId,
+              orders.map((order) => resolveCustomerPhone(order)),
+              aliasToRoster,
+            );
             await writeOrderedConcurrentLines(orders, write, async (order) => {
               const customerName =
                 getCustomerName(order.shippingAddress) ||
                 getCustomerName(order.billingAddress) ||
                 order.customerEmail ||
                 "";
-              const paymentGateway = dumpOrderPaymentGateway(order);
+              const paymentGateway = dumpOrderPaymentGateway(
+                order,
+                erpPaymentModes.get(order.id) ?? [],
+              );
               const merchantCouponCode = getMerchantCouponCode({
                 sourceName: order.sourceName,
                 discountCodes: order.discountCodes,
@@ -853,6 +976,8 @@ export async function GET(request: NextRequest) {
                 userToGroup,
               });
               const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+              const customerPhone = resolveCustomerPhone(order) ?? null;
+              const contactFields = dumpContactFieldsForPhone(contactByPhone, customerPhone);
               const createdBy = resolveOrderCreatedByEmail({
                 sourceName: order.sourceName,
                 shopifyUserId: order.shopifyUserId,
@@ -892,7 +1017,9 @@ export async function GET(request: NextRequest) {
                 posWarehouse: order.erpnextWarehouse ?? null,
                 customerName,
                 customerEmail: order.customerEmail,
-                customerPhone: resolveCustomerPhone(order) ?? null,
+                customerPhone,
+                lastPurchaseDate: contactFields.lastPurchaseDate,
+                allocatedMerchant: contactFields.allocatedMerchant,
                 shippingPhone: resolveShippingPhone(order) ?? null,
                 billingAddress: formatAddress(order.billingAddress),
                 shippingAddress,
@@ -932,7 +1059,7 @@ export async function GET(request: NextRequest) {
         }
       }
     } else {
-      const [totalOrders, merchantUsers, userToGroup, creatorUsers, totalLineItems, vendors] = await Promise.all([
+      const [totalOrders, merchantUsers, userToGroup, creatorUsers, totalLineItems, vendors, aliasToRoster] = await Promise.all([
         prisma.order.count({ where: orderWhere }),
         prisma.user.findMany({
           where: {
@@ -970,6 +1097,7 @@ export async function GET(request: NextRequest) {
           select: { name: true },
           orderBy: { name: "asc" },
         }),
+        loadAssignedMerchantAliasMap(companyId),
       ]);
       const couponToMerchant = buildCouponToMerchantMap(merchantUsers, userToGroup);
       const shopifyUserIdToEmail = buildShopifyUserIdToEmailMap(creatorUsers);
@@ -998,14 +1126,25 @@ export async function GET(request: NextRequest) {
               companyId,
               orders.map((order) => order.id),
             );
+            const erpPaymentModes = await loadDumpErpPaymentModes(orders);
+            const contactByPhone = await loadDumpContactFieldsByPhones(
+              companyId,
+              orders.map((order) => resolveCustomerPhone(order)),
+              aliasToRoster,
+            );
             await writeOrderedConcurrentLines(orders, write, async (order) => {
       const customerName =
         getCustomerName(order.shippingAddress) ||
         getCustomerName(order.billingAddress) ||
         order.customerEmail ||
         "";
-      const paymentGateway = dumpOrderPaymentGateway(order);
+      const paymentGateway = dumpOrderPaymentGateway(
+        order,
+        erpPaymentModes.get(order.id) ?? [],
+      );
       const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+      const customerPhone = resolveCustomerPhone(order) ?? null;
+      const contactFields = dumpContactFieldsForPhone(contactByPhone, customerPhone);
       const createdBy = resolveOrderCreatedByEmail({
         sourceName: order.sourceName,
         shopifyUserId: order.shopifyUserId,
@@ -1098,7 +1237,9 @@ export async function GET(request: NextRequest) {
           locationName: order.companyLocation.name,
           customerName,
           customerEmail: order.customerEmail,
-          customerPhone: resolveCustomerPhone(order) ?? null,
+          customerPhone,
+          lastPurchaseDate: contactFields.lastPurchaseDate,
+          allocatedMerchant: contactFields.allocatedMerchant,
           sku: item.productItem.sku,
           barcode: item.productItem.barcode,
           brand: dumpLineBrand({
@@ -1155,13 +1296,22 @@ export async function GET(request: NextRequest) {
               companyId,
               orders.map((order) => order.id),
             );
+            const erpPaymentModes = await loadDumpErpPaymentModes(orders);
+            const contactByPhone = await loadDumpContactFieldsByPhones(
+              companyId,
+              orders.map((order) => resolveCustomerPhone(order)),
+              aliasToRoster,
+            );
             await writeOrderedConcurrentLines(orders, write, async (order) => {
     const customerName =
       getCustomerName(order.shippingAddress) ||
       getCustomerName(order.billingAddress) ||
       order.customerEmail ||
       "";
-    const paymentGateway = dumpOrderPaymentGateway(order);
+    const paymentGateway = dumpOrderPaymentGateway(
+      order,
+      erpPaymentModes.get(order.id) ?? [],
+    );
     const merchantCouponCode = getMerchantCouponCode({
       sourceName: order.sourceName,
       discountCodes: order.discountCodes,
@@ -1183,6 +1333,8 @@ export async function GET(request: NextRequest) {
       userToGroup,
     });
     const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+    const customerPhone = resolveCustomerPhone(order) ?? null;
+    const contactFields = dumpContactFieldsForPhone(contactByPhone, customerPhone);
     const createdBy = resolveOrderCreatedByEmail({
       sourceName: order.sourceName,
       shopifyUserId: order.shopifyUserId,
@@ -1222,7 +1374,9 @@ export async function GET(request: NextRequest) {
       posWarehouse: order.erpnextWarehouse ?? null,
       customerName,
       customerEmail: order.customerEmail,
-      customerPhone: resolveCustomerPhone(order) ?? null,
+      customerPhone,
+      lastPurchaseDate: contactFields.lastPurchaseDate,
+      allocatedMerchant: contactFields.allocatedMerchant,
       shippingPhone: resolveShippingPhone(order) ?? null,
       billingAddress: formatAddress(order.billingAddress),
       shippingAddress,
