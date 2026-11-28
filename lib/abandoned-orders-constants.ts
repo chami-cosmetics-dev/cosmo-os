@@ -133,6 +133,8 @@ export function matchRemarkTemplateId(remark: string | null | undefined): Remark
 /** Why the customer abandoned checkout (separate from customer-response remark). */
 export const ABANDONMENT_REASONS = [
   "koko_payment_issue",
+  "mint_pay",
+  "need_to_collect_discount",
   "city_not_available",
   "no_need_of_products",
   "no_intention_to_buy",
@@ -141,6 +143,8 @@ export type AbandonmentReason = (typeof ABANDONMENT_REASONS)[number];
 
 export const ABANDONMENT_REASON_LABELS: Record<AbandonmentReason, string> = {
   koko_payment_issue: "Koko payment issue",
+  mint_pay: "Mint Pay",
+  need_to_collect_discount: "Need to collect discount",
   city_not_available: "City not available",
   no_need_of_products: "No need of the product(s)",
   no_intention_to_buy: "No intention to buy the product",

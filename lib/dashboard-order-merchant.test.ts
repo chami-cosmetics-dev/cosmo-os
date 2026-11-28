@@ -97,4 +97,26 @@ describe("resolveDashboardOrderMerchant", () => {
       }),
     ).toEqual({ id: "natasha", name: "Natasha", isWholesale: false });
   });
+
+  it("assigns ERP spaced MER116 - Imandi to Imandi when user has MER116", () => {
+    const imandiUsers = [
+      {
+        id: "imandi",
+        knownName: "Imandi",
+        couponCodes: ["MER116"],
+        wholesaleCouponCodes: [] as string[],
+      },
+    ];
+    expect(
+      resolveDashboardOrderMerchant({
+        orderCoupons: ["mer116 - imandi"],
+        couponToUser: buildCouponToMerchantMap(imandiUsers),
+        wholesaleOwners: buildWholesaleOwnerMap(imandiUsers),
+        assignedMerchantId: null,
+        assignedMerchant: null,
+        userToGroup: new Map(),
+        locationName: "AE (PVT) LTD",
+      }),
+    ).toEqual({ id: "imandi", name: "Imandi", isWholesale: false });
+  });
 });

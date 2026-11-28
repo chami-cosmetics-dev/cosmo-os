@@ -2733,8 +2733,9 @@ export function CustomerInsightPanel({
                 Purchased from
               </legend>
               <p className="text-muted-foreground text-xs">
-                Contacts whose last purchase falls on these dates. Results include
-                phone numbers. Same day in both fields = that date only.
+                Contacts whose last completed invoice date falls here (Cosmo
+                created / Adapt invoice). Same day in both fields = that date
+                only.
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <label className="space-y-1 text-sm">
@@ -2763,8 +2764,8 @@ export function CustomerInsightPanel({
                 No purchase
               </legend>
               <p className="text-muted-foreground text-xs">
-                Last purchase not in this range. Never bought counts. Same day
-                in both fields = that date only.
+                Last completed invoice date not in this range. Never bought
+                counts. Same day in both fields = that date only.
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <label className="space-y-1 text-sm">

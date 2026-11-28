@@ -237,7 +237,8 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
                 );
               })}
               <div className="rounded-2xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-                Historical files use calendar-year ranges, and invoice exports are generated directly from current live order records.
+                Year-by-year files use calendar-year ranges and include Adapt history plus live Cosmo orders.
+                Overlapping 2026 rows can appear in both sources — use the data_source column to tell them apart.
               </div>
             </CardContent>
           </Card>

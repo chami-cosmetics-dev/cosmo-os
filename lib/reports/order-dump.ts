@@ -7,6 +7,7 @@ import {
 import { resolveStoredCancelReason } from "@/lib/order-cancel-reason";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { formatAppIsoTime } from "@/lib/format-datetime";
+import { formatReportPhone } from "@/lib/phone-lookup";
 import { buildCsv, escapeCsvCell, formatCsvHeader, formatIsoDate } from "@/lib/reports/csv";
 
 function formatSourceName(sourceName: string): string {
@@ -60,6 +61,95 @@ export function summarizePaymentGateway(value: string) {
   }
 
   return trimmed;
+}
+
+const BLANK_PAYMENT_LABELS = new Set([
+  "",
+  "n/a",
+  "na",
+  "none",
+  "null",
+  "-",
+  "unknown",
+]);
+
+/** ERP / Adapt placeholders that mean “no payment type recorded”. */
+export function isBlankPaymentLabel(value: string | null | undefined) {
+  return BLANK_PAYMENT_LABELS.has(value?.trim().toLowerCase() ?? "");
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function paymentModesFromRawPayload(rawPayload: unknown): string[] {
+  const top = asRecord(rawPayload);
+  if (!top) return [];
+  const data = asRecord(top.data) ?? top;
+  const modes: string[] = [];
+
+  const payments = data.payments;
+  if (Array.isArray(payments)) {
+    for (const row of payments) {
+      const payment = asRecord(row);
+      if (!payment) continue;
+      for (const key of ["mode_of_payment", "type", "mode", "payment_method"] as const) {
+        const raw = payment[key];
+        if (typeof raw === "string" && !isBlankPaymentLabel(raw)) {
+          modes.push(raw.trim());
+          break;
+        }
+      }
+    }
+  }
+
+  for (const key of ["custom_payment_type", "payment_type", "mode_of_payment"] as const) {
+    const raw = data[key];
+    if (typeof raw === "string" && !isBlankPaymentLabel(raw)) modes.push(raw.trim());
+  }
+
+  return modes;
+}
+
+function paymentModesFromAdaptContext(rawPaymentContext: unknown): string[] {
+  const row = asRecord(rawPaymentContext);
+  if (!row) return [];
+  const parts: string[] = [];
+  if (row.cash) parts.push("Cash");
+  if (row.card) parts.push("Card");
+  return parts;
+}
+
+/**
+ * Dump payment_gateway source order:
+ * stored gateway → Adapt paymentMethod → OrderPaymentEntry → rawPayload → Adapt cash/card context.
+ * Skips None / N/A placeholders so paid orders can still pick up a real mode.
+ */
+export function resolveDumpPaymentGateway(input: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+  paymentMethod?: string | null;
+  paymentEntryModes?: Array<string | null | undefined> | null;
+  rawPayload?: unknown;
+  rawPaymentContext?: unknown;
+}) {
+  const candidates = [
+    input.paymentGatewayPrimary,
+    ...(input.paymentGatewayNames ?? []),
+    input.paymentMethod,
+    ...(input.paymentEntryModes ?? []),
+    ...paymentModesFromRawPayload(input.rawPayload),
+    ...paymentModesFromAdaptContext(input.rawPaymentContext),
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    if (isBlankPaymentLabel(candidate)) continue;
+    return candidate.trim();
+  }
+
+  return "";
 }
 
 /**
@@ -208,6 +298,13 @@ export type OrderInvoiceItemCsvRow = {
   created_by: string;
   delivered_by: string;
   delivery_completed_date: string;
+  /** Invoice-complete stamp (Colombo day). */
+  invoice_complete_date: string;
+  /**
+   * OSF month attribution date: deliveryCompleteAt else invoiceCompleteAt.
+   * Use this for month pivots vs OSF Sales Total (not invoice_date).
+   */
+  completed_date: string;
   pos_sale: string;
 };
 
@@ -286,6 +383,8 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "created_by",
   "delivered_by",
   "delivery_completed_date",
+  "invoice_complete_date",
+  "completed_date",
   "pos_sale",
   "cancel_reason",
 ] as const;
@@ -439,8 +538,8 @@ export function createOrderInvoiceRow(input: {
     erp_invoice_id: input.erpInvoiceId ?? "",
     source_name: sourceName,
     customer_name: input.customerName,
-    customer_phone: input.customerPhone ?? "",
-    shipping_phone: input.shippingPhone ?? "",
+    customer_phone: formatReportPhone(input.customerPhone),
+    shipping_phone: formatReportPhone(input.shippingPhone),
     customer_email: input.customerEmail ?? "",
     billing_address: input.billingAddress,
     shipping_address: input.shippingAddress,
@@ -524,7 +623,7 @@ export function createOrderInvoiceItemRow(input: {
     location_name: input.locationName,
     customer_name: input.customerName,
     customer_email: input.customerEmail ?? "",
-    customer_phone: input.customerPhone ?? "",
+    customer_phone: formatReportPhone(input.customerPhone),
     sku: input.sku ?? "",
     barcode: input.barcode ?? "",
     brand: input.brand ?? "",
@@ -545,6 +644,9 @@ export function createOrderInvoiceItemRow(input: {
     created_by: input.createdBy,
     delivered_by: input.deliveryCompleteBy,
     delivery_completed_date: formatIsoDate(input.deliveryCompleteAt),
+    invoice_complete_date: formatIsoDate(input.invoiceCompleteAt),
+    // Same date OSF uses for month sales: delivery else invoice complete.
+    completed_date: formatIsoDate(input.deliveryCompleteAt ?? input.invoiceCompleteAt),
     pos_sale: isPosSaleSource(input.sourceName) ? "1" : "0",
   };
 }

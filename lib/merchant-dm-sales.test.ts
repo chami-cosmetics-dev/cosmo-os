@@ -141,6 +141,17 @@ describe("classifyMerchantSalesBucket", () => {
     ).toBeNull();
   });
 
+  it("treats ERP spaced MER label as personal MER", () => {
+    const imandi = splitMerchantCouponSets(["MER116"]);
+    expect(
+      classifyMerchantSalesBucket({
+        orderCoupons: ["mer116 - imandi"],
+        ...imandi,
+        assignedToViewer: false,
+      }),
+    ).toBe("mer");
+  });
+
   it("uses assignment only when user has no DM bucket", () => {
     const personalOnly = splitMerchantCouponSets(["MER91"]);
     expect(
@@ -233,6 +244,22 @@ describe("resolveCohortMerchantId", () => {
         dmBucketId: "__dm_general__",
       }),
     ).toBe("u-sandali");
+  });
+
+  it("matches ERP spaced MER label via normalized MER## map key", () => {
+    const couponToMerchantId = new Map([
+      ["mer116", "u-imandi"],
+      ["mer115", "__dm_general__"],
+    ]);
+    expect(
+      resolveCohortMerchantId({
+        orderCoupons: ["mer116 - imandi"],
+        couponToMerchantId,
+        assignedMerchantId: null,
+        cohortIds: new Set(["u-imandi"]),
+        dmBucketId: "__dm_general__",
+      }),
+    ).toBe("u-imandi");
   });
 });
 

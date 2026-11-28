@@ -1,28 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { taskReminderHref } from "@/lib/task-reminder-links";
+import {
+  TASK_REMINDER_ORDER_ID_PARAM,
+  TASK_REMINDER_WAYBILL_ID_PARAM,
+  taskReminderHref,
+} from "@/lib/task-reminder-links";
 
 describe("taskReminderHref", () => {
-  it("returns path unchanged when no params", () => {
-    expect(taskReminderHref("/dashboard/fulfillment/print")).toBe(
-      "/dashboard/fulfillment/print",
+  it("builds waybill deep-link for City Pack Delivery Failed", () => {
+    expect(
+      taskReminderHref("/dashboard/fulfillment/waybill-lookup", {
+        waybillId: "wb-1",
+        orderId: "ord-1",
+      }),
+    ).toBe(
+      `/dashboard/fulfillment/waybill-lookup?${TASK_REMINDER_ORDER_ID_PARAM}=ord-1&${TASK_REMINDER_WAYBILL_ID_PARAM}=wb-1`,
     );
   });
 
-  it("appends orderId query param", () => {
-    expect(
-      taskReminderHref("/dashboard/fulfillment/sample-free-issue", {
-        orderId: "clxyz123",
-      }),
-    ).toBe("/dashboard/fulfillment/sample-free-issue?orderId=clxyz123");
-  });
-
-  it("appends orderId and queue for rearrange dispatch", () => {
-    expect(
-      taskReminderHref("/dashboard/fulfillment/dispatch", {
-        orderId: "clxyz123",
-        queue: "rearrange",
-      }),
-    ).toBe("/dashboard/fulfillment/dispatch?orderId=clxyz123&queue=rearrange");
+  it("omits empty opts", () => {
+    expect(taskReminderHref("/dashboard/merchant")).toBe("/dashboard/merchant");
   });
 });

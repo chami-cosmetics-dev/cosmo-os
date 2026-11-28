@@ -27,7 +27,6 @@ import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-ite
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
 import { escapeHtml, injectBundleComponentInvoiceRows, renderPrintFormatHtml } from "@/lib/print-format-renderer";
 import { resolveOrderInvoiceBundleComponents } from "@/lib/order-invoice-bundle-components";
-import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
 import { cuidSchema } from "@/lib/validation";

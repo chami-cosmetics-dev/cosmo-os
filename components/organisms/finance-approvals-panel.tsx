@@ -7,6 +7,7 @@ import {
   ArrowLeftRight,
   Ban,
   CheckCircle2,
+  ChevronRight,
   CreditCard,
   History,
   Inbox,
@@ -120,6 +121,87 @@ const REQUEST_CATEGORY_QUEUES: {
   { id: "invoice_revert_void_approval", label: "Invoice Revert", icon: Undo2 },
   { id: "order_cancel_approval", label: "Order Cancel", icon: Ban },
 ];
+
+/** Accent + tint by queue type — always applied, including zero-count cards. */
+const QUEUE_CARD_COLORS: Record<QueueId, { accent: string; tint: string }> = {
+  all: { accent: "#C8A8FF", tint: "#382653" },
+  history: { accent: "#BFCAE7", tint: "#2E3A55" },
+  delivery_payment_approval: { accent: "#83BDFF", tint: "#193D67" },
+  order_payment_approval: { accent: "#83BDFF", tint: "#193D67" },
+  payment_method_change_approval: { accent: "#FFD084", tint: "#54381E" },
+  invoice_revert_void_approval: { accent: "#FFD084", tint: "#54381E" },
+  return_rearrange_payment: { accent: "#81E8DB", tint: "#1A4747" },
+  return_cancel: { accent: "#81E8DB", tint: "#1A4747" },
+  order_cancel_approval: { accent: "#81E8DB", tint: "#1A4747" },
+};
+
+function QueueOverviewCard({
+  queueId,
+  label,
+  icon: Icon,
+  count,
+  ariaLabel,
+  prominent = false,
+  onOpen,
+  onKeyDown,
+}: {
+  queueId: QueueId;
+  label: string;
+  icon: LucideIcon;
+  count: number;
+  ariaLabel: string;
+  prominent?: boolean;
+  onOpen: (queueId: QueueId) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLButtonElement>, queueId: QueueId) => void;
+}) {
+  const { accent, tint } = QUEUE_CARD_COLORS[queueId];
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(queueId)}
+      onKeyDown={(event) => onKeyDown(event, queueId)}
+      aria-label={ariaLabel}
+      className={cn(
+        "flex w-full flex-col rounded-xl border border-border/40 text-left transition-opacity hover:opacity-95",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        prominent ? "gap-4 p-5" : "gap-3 p-4",
+      )}
+      style={{
+        borderLeftWidth: 4,
+        borderLeftColor: accent,
+        backgroundImage: `linear-gradient(135deg, ${tint} 0%, transparent 70%)`,
+        backgroundColor: "hsl(var(--card))",
+      }}
+    >
+      <span className="flex items-center justify-between gap-3">
+        <span className="flex min-w-0 items-center gap-2.5">
+          <span
+            className={cn(
+              "flex shrink-0 items-center justify-center rounded-lg",
+              prominent ? "size-10" : "size-9",
+            )}
+            style={{ backgroundColor: accent, color: "#0f172a" }}
+          >
+            <Icon className={prominent ? "size-5" : "size-4"} aria-hidden />
+          </span>
+          <span className={cn("truncate font-semibold text-white", prominent ? "text-base" : "text-sm")}>
+            {label}
+          </span>
+        </span>
+        <ChevronRight className="size-4 shrink-0" style={{ color: accent }} aria-hidden />
+      </span>
+      <span
+        className={cn(
+          "font-semibold tracking-tight tabular-nums",
+          prominent ? "text-3xl" : "text-2xl",
+        )}
+        style={{ color: accent }}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
 
 function queueFromId(queueId: QueueId): { view: "pending" | "history"; typeFilter: TypeFilter } {
   if (queueId === "history") return { view: "history", typeFilter: "all" };
@@ -848,52 +930,26 @@ export function FinanceApprovalsPanel({
       {screen === "overview" ? (
         <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => openQueue("all")}
-              onKeyDown={(event) => handleQueueCardKeyDown(event, "all")}
-              aria-label={`All Pending, ${pendingCountByType.all} requests`}
-              className={cn(
-                "flex w-full flex-col gap-4 rounded-xl border p-5 text-left transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                pendingCountByType.all === 0
-                  ? "border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/35"
-                  : "border-primary/30 bg-primary/5 hover:border-primary/50 hover:bg-primary/10",
-              )}
-            >
-              <span className="flex items-center gap-3">
-                <span className="flex size-10 items-center justify-center rounded-lg bg-primary/15 text-primary">
-                  <Inbox className="size-5" aria-hidden />
-                </span>
-                <span className="text-base font-semibold text-foreground">All Pending</span>
-              </span>
-              <span className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
-                {pendingCountByType.all}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => openQueue("history")}
-              onKeyDown={(event) => handleQueueCardKeyDown(event, "history")}
-              aria-label={`History, ${historyCount} processed requests`}
-              className={cn(
-                "flex w-full flex-col gap-4 rounded-xl border p-5 text-left transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                historyCount === 0
-                  ? "border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/35"
-                  : "border-border/70 bg-card hover:border-primary/40 hover:bg-primary/5",
-              )}
-            >
-              <span className="flex items-center gap-3">
-                <span className="flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                  <History className="size-5" aria-hidden />
-                </span>
-                <span className="text-base font-semibold text-foreground">History</span>
-              </span>
-              <span className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
-                {historyCount}
-              </span>
-            </button>
+            <QueueOverviewCard
+              queueId="all"
+              label="All Pending"
+              icon={Inbox}
+              count={pendingCountByType.all}
+              ariaLabel={`All Pending, ${pendingCountByType.all} requests`}
+              prominent
+              onOpen={openQueue}
+              onKeyDown={handleQueueCardKeyDown}
+            />
+            <QueueOverviewCard
+              queueId="history"
+              label="History"
+              icon={History}
+              count={historyCount}
+              ariaLabel={`History, ${historyCount} processed requests`}
+              prominent
+              onOpen={openQueue}
+              onKeyDown={handleQueueCardKeyDown}
+            />
           </div>
 
           <div className="space-y-3">
@@ -903,45 +959,17 @@ export function FinanceApprovalsPanel({
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {REQUEST_CATEGORY_QUEUES.map((queue) => {
                 const count = pendingCountByType[queue.id];
-                const Icon = queue.icon;
-                const quiet = count === 0;
                 return (
-                  <button
+                  <QueueOverviewCard
                     key={queue.id}
-                    type="button"
-                    onClick={() => openQueue(queue.id)}
-                    onKeyDown={(event) => handleQueueCardKeyDown(event, queue.id)}
-                    aria-label={`${queue.label}, ${count} pending requests`}
-                    className={cn(
-                      "flex w-full flex-col gap-3 rounded-xl border p-4 text-left transition-colors",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                      quiet
-                        ? "border-border/40 bg-muted/15 text-muted-foreground hover:bg-muted/30"
-                        : "border-border/70 bg-card hover:border-primary/40 hover:bg-primary/5",
-                    )}
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <span
-                        className={cn(
-                          "flex size-9 items-center justify-center rounded-lg",
-                          quiet ? "bg-muted/60" : "bg-primary/10 text-primary",
-                        )}
-                      >
-                        <Icon className="size-4" aria-hidden />
-                      </span>
-                      <span className={cn("text-sm font-semibold", quiet ? "text-muted-foreground" : "text-foreground")}>
-                        {queue.label}
-                      </span>
-                    </span>
-                    <span
-                      className={cn(
-                        "text-2xl font-semibold tracking-tight tabular-nums",
-                        quiet ? "text-muted-foreground/80" : "text-foreground",
-                      )}
-                    >
-                      {count}
-                    </span>
-                  </button>
+                    queueId={queue.id}
+                    label={queue.label}
+                    icon={queue.icon}
+                    count={count}
+                    ariaLabel={`${queue.label}, ${count} pending requests`}
+                    onOpen={openQueue}
+                    onKeyDown={handleQueueCardKeyDown}
+                  />
                 );
               })}
             </div>

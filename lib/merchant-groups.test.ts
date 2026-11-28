@@ -119,6 +119,34 @@ describe("matchMerchantFromCouponMap", () => {
     );
     expect(matchMerchantFromCouponMap(["DM_General"], map)?.id).toBeNull();
   });
+
+  it("matches ERP spaced MER label to merchant registered as MER## only", () => {
+    const map = buildCouponToMerchantMap([
+      {
+        id: "imandi",
+        knownName: "Imandi",
+        couponCodes: ["MER116"],
+      },
+    ]);
+    expect(map.get("mer116")?.id).toBe("imandi");
+    expect(
+      matchMerchantFromCouponMap(["mer116 - imandi"], map),
+    ).toEqual({ id: "imandi", name: "Imandi" });
+    expect(
+      matchMerchantFromCouponMap(["MER116-Imandi"], map)?.id,
+    ).toBe("imandi");
+  });
+
+  it("matches when user stores MER##-Name and order sends MER## only", () => {
+    const map = buildCouponToMerchantMap([
+      {
+        id: "imandi",
+        knownName: "Imandi",
+        couponCodes: ["MER116-Imandi"],
+      },
+    ]);
+    expect(matchMerchantFromCouponMap(["mer116"], map)?.id).toBe("imandi");
+  });
 });
 
 describe("resolveAssignedMerchantDashboardFallback", () => {
