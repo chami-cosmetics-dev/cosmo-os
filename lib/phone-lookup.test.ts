@@ -3,6 +3,8 @@ import {
   buildPhoneLookupVariants,
   buildPhoneSearchSuffixes,
   canonicalPhoneForErpCustomerId,
+  formatReportPhone,
+  formatReportPhoneList,
   normalizeOrderCustomerPhone,
   parseInsightPhoneSearchInput,
 } from "@/lib/phone-lookup";
@@ -43,6 +45,21 @@ describe("normalizeOrderCustomerPhone", () => {
 
   it("keeps original trimmed value when uncorrectable", () => {
     expect(normalizeOrderCustomerPhone("7712345678")).toBe("7712345678");
+  });
+});
+
+describe("formatReportPhone", () => {
+  it("keeps 9 local digits and strips +94 / 94 / leading 0", () => {
+    expect(formatReportPhone("94766576655")).toBe("766576655");
+    expect(formatReportPhone("+94766576655")).toBe("766576655");
+    expect(formatReportPhone("0766576655")).toBe("766576655");
+    expect(formatReportPhone("766576655")).toBe("766576655");
+    expect(formatReportPhone("+94 77 123 4567")).toBe("771234567");
+  });
+
+  it("formats joined phone lists and dedupes", () => {
+    expect(formatReportPhoneList("0771234567; +94771234567")).toBe("771234567");
+    expect(formatReportPhoneList("")).toBe("");
   });
 });
 

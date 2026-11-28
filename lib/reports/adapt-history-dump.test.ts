@@ -151,7 +151,7 @@ describe("adapt-history-dump", () => {
     expect(invoice.grand_total).toBe("250.00")
     expect(invoice.shipping_total).toBe("50.00")
     expect(invoice.coupon_code).toBe("MER9")
-    expect(invoice.customer_phone).toBe("0771111111")
+    expect(invoice.customer_phone).toBe("771111111")
     expect(invoice.pos_sale).toBe("0")
 
     const items = mapAdaptInvoiceToDumpItemRows(input, catalog, ["OGX", "Cantu"])

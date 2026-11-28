@@ -1,6 +1,7 @@
 import { adaptLineItemsForPurchaseUi } from "@/lib/adapt-import/line-items";
 import { saleBusinessLabel } from "@/lib/customer-insight/invoices";
 import { FULFILLMENT_STAGE_LABELS } from "@/lib/fulfillment-stage-display";
+import { formatReportPhone, formatReportPhoneList } from "@/lib/phone-lookup";
 import { getProductItemStatusMeta } from "@/lib/product-item-status";
 import { formatIsoDateTime } from "@/lib/reports/csv";
 import { readStoredSupplementLines } from "@/lib/vault-supplement-import/invoice-merge";
@@ -415,15 +416,15 @@ export function createMasterOrderRow(input: MasterOrderReportInput): MasterOrder
     "CREATED AT": at(input.createdAt),
     "CREATED BY": input.createdBy,
     "CUSTOMER NAME": input.customerName,
-    "CUSTOMER PHONE": input.customerPhone,
-    "SHIPPING PHONE": input.shippingPhone,
+    "CUSTOMER PHONE": formatReportPhone(input.customerPhone),
+    "SHIPPING PHONE": formatReportPhone(input.shippingPhone),
     "CUSTOMER EMAIL": input.customerEmail,
     "SHIPPING ADDRESS": input.shippingAddress,
     "BILLING ADDRESS": input.billingAddress,
     "POST CODE": input.postCode,
     DISTRICT: input.district,
     "CONTACT NAME": input.contactName,
-    "CONTACT PHONES": input.contactPhones,
+    "CONTACT PHONES": formatReportPhoneList(input.contactPhones),
     "CONTACT EMAILS": input.contactEmails,
     "CUSTOMER TYPE": input.customerType,
     "CALL CATEGORY": input.callCategory,

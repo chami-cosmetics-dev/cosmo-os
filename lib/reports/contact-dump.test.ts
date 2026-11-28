@@ -104,8 +104,8 @@ describe("splitPrimaryAndExtra", () => {
     expect(
       splitPrimaryAndExtra("0771234567", ["+94771234567", "0112223333"], "phone")
     ).toEqual({
-      primary: "0771234567",
-      extra: "0112223333",
+      primary: "771234567",
+      extra: "112223333",
     });
   });
 });
@@ -114,8 +114,8 @@ describe("contact dump 1", () => {
   it("fills CRM fields instead of guessing purchase or phone flags", () => {
     const row = buildContactDumpRow(baseContact());
     expect(row.id).toBe("contact_1");
-    expect(row.tp_number).toBe("0771234567");
-    expect(row.extra_phones).toBe("0112223333");
+    expect(row.tp_number).toBe("771234567");
+    expect(row.extra_phones).toBe("112223333");
     expect(row.email).toBe("nimal@example.com");
     expect(row.extra_emails).toBe("nimal.work@example.com");
     expect(row.service_provider_name).toBe("Dialog");
@@ -192,7 +192,7 @@ describe("contact list dumps", () => {
     const csv = buildLastPurchasedDumpCsv([listContact()]);
     expect(csv).toContain("EXTRA_EMAILS");
     expect(csv).toContain("nimal.work@example.com");
-    expect(csv).toContain("0112223333");
+    expect(csv).toContain("112223333");
   });
 
   it("includes assigned loyalty fields", () => {
@@ -242,6 +242,6 @@ describe("contactEmails / contactPhones", () => {
         phoneNumber: null,
         phones: [{ phoneNumber: "0112223333" }],
       })
-    ).toEqual({ primary: "0112223333", extra: "" });
+    ).toEqual({ primary: "112223333", extra: "" });
   });
 });

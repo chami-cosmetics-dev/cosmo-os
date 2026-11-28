@@ -176,6 +176,39 @@ export function canonicalPhoneForErpCustomerId(raw: string): string | null {
   return null;
 }
 
+/**
+ * Report / dump phone columns: digits only, no +94 / 94 / leading 0.
+ * Example: +94766576655 / 94766576655 / 0766576655 → 766576655
+ */
+export function formatReportPhone(raw: string | null | undefined): string {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return "";
+
+  const canonical = canonicalPhoneForErpCustomerId(trimmed);
+  if (canonical) return canonical.slice(1);
+
+  let digits = phoneDigitsOnly(trimmed);
+  if (!digits) return "";
+  if (digits.startsWith("94") && digits.length >= 11) digits = digits.slice(2);
+  if (digits.length === 10 && digits.startsWith("0")) digits = digits.slice(1);
+  return digits;
+}
+
+/** Format one phone or a "; "-joined list for report columns. */
+export function formatReportPhoneList(raw: string | null | undefined): string {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return "";
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const chunk of trimmed.split(/[;|]/)) {
+    const phone = formatReportPhone(chunk);
+    if (!phone || seen.has(phone)) continue;
+    seen.add(phone);
+    parts.push(phone);
+  }
+  return parts.join("; ");
+}
+
 /** Customer insight phone search: paste up to this many numbers. */
 export const INSIGHT_PHONE_SEARCH_MAX = 10;
 /** Raw paste size (newlines, +94, spaces). */
