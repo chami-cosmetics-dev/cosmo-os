@@ -7,6 +7,7 @@ import {
 import { resolveStoredCancelReason } from "@/lib/order-cancel-reason";
 import { isMintpayGateway } from "@/lib/payment-gateway-match";
 import { formatAppIsoTime } from "@/lib/format-datetime";
+import { formatReportPhone } from "@/lib/phone-lookup";
 import { buildCsv, escapeCsvCell, formatCsvHeader, formatIsoDate } from "@/lib/reports/csv";
 
 function formatSourceName(sourceName: string): string {
@@ -537,8 +538,8 @@ export function createOrderInvoiceRow(input: {
     erp_invoice_id: input.erpInvoiceId ?? "",
     source_name: sourceName,
     customer_name: input.customerName,
-    customer_phone: input.customerPhone ?? "",
-    shipping_phone: input.shippingPhone ?? "",
+    customer_phone: formatReportPhone(input.customerPhone),
+    shipping_phone: formatReportPhone(input.shippingPhone),
     customer_email: input.customerEmail ?? "",
     billing_address: input.billingAddress,
     shipping_address: input.shippingAddress,
@@ -622,7 +623,7 @@ export function createOrderInvoiceItemRow(input: {
     location_name: input.locationName,
     customer_name: input.customerName,
     customer_email: input.customerEmail ?? "",
-    customer_phone: input.customerPhone ?? "",
+    customer_phone: formatReportPhone(input.customerPhone),
     sku: input.sku ?? "",
     barcode: input.barcode ?? "",
     brand: input.brand ?? "",

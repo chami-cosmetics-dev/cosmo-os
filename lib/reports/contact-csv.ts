@@ -1,4 +1,8 @@
-import { canonicalPhoneForErpCustomerId, phoneDigitsOnly } from "@/lib/phone-lookup";
+import {
+  canonicalPhoneForErpCustomerId,
+  formatReportPhone,
+  phoneDigitsOnly,
+} from "@/lib/phone-lookup";
 import { formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
 
 export type ContactIdentifierRow = {
@@ -53,7 +57,7 @@ export function splitPrimaryAndExtra(
     const key = normalizeAlias(trimmed, mode);
     if (!key || seen.has(key)) return;
     seen.add(key);
-    ordered.push(trimmed);
+    ordered.push(mode === "phone" ? formatReportPhone(trimmed) || phoneDigitsOnly(trimmed) : trimmed);
   };
 
   push(primary);
