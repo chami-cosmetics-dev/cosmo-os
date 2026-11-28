@@ -4276,6 +4276,9 @@ model DiscontinuedItem {
   approvedDate     DateTime?
   /// When the SEO "approved for drafting" notification counted this item (sent once per item).
   seoNotifiedAt    DateTime?
+  /// When Shopify was read (once, after approval) to see if the product was already Draft. Draft
+  /// → completed by the system ("Already drafted in Shopify"); null = not checked yet (retried).
+  alreadyDraftCheckedAt DateTime?
   disableReason    String?
   redirectionLink  String?
   draftClickedDate DateTime?

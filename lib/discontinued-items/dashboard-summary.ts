@@ -1,7 +1,7 @@
 /**
  * Item Drafting → Dashboard doughnuts. Every item lands in exactly one segment per doughnut, from
  * its saved status; the doughnuts chain: Shopify Draft = Purchasing "Approved", After Drafting =
- * Shopify Draft "Completed". Pure, client-safe.
+ * Shopify Draft "Completed" + "Already drafted in Shopify". Pure, client-safe.
  */
 
 import type { DiscontinuedItemPresence, DiscontinuedItemStage } from "@prisma/client";
@@ -16,10 +16,15 @@ export type SummaryInput = {
   madeActiveAgain: boolean;
   /** The current Draft click's Shopify check could not be done (Phase 5). */
   checkFailed: boolean;
+  /** Completed by the system: Shopify already showed Draft at approval ("Already drafted in Shopify"). */
+  alreadyDrafted?: boolean;
 };
 
 export type PurchasingSegment = "waiting" | "pending" | "approved" | "notOnWebsite";
-export type ShopifySegment = "awaitingDraft" | "awaitingCheck" | "mismatch" | "completed";
+export type ShopifySegment = "awaitingDraft" | "alreadyDraft" | "awaitingCheck" | "mismatch" | "completed";
+
+/** Shopify Draft groups a Dashboard click can open (Draft column filter). */
+export type ShopifyDraftGroup = "awaitingDraft" | "awaitingCheck" | "mismatch";
 export type AfterSegment = "stillDrafted" | "activeAgain";
 
 export type ItemSegments = {
@@ -37,13 +42,19 @@ export function segmentsOf(item: SummaryInput): ItemSegments {
 
   let shopify: ShopifySegment | null = null;
   if (purchasing === "approved") {
-    if (item.stage === "DONE") shopify = "completed";
+    // Already Draft in Shopify at approval: completed by the system, never in the Shopify Draft tab.
+    if (item.stage === "DONE") shopify = item.alreadyDrafted ? "alreadyDraft" : "completed";
     else if (item.draftClicked) shopify = "awaitingCheck";
     else shopify = item.verification === "FAIL" ? "mismatch" : "awaitingDraft";
   }
 
+  // Both kinds of drafted items are checked weekly for Active Again.
   const after: AfterSegment | null =
-    shopify === "completed" ? (item.madeActiveAgain ? "activeAgain" : "stillDrafted") : null;
+    shopify === "completed" || shopify === "alreadyDraft"
+      ? item.madeActiveAgain
+        ? "activeAgain"
+        : "stillDrafted"
+      : null;
   return { purchasing, shopify, after };
 }
 
@@ -65,7 +76,7 @@ export function summarize(items: SummaryInput[]): ItemDraftingSummary {
     purchasing: { waiting: 0, pending: 0, approved: 0, notOnWebsite: 0 },
     pendingErp1Left: 0,
     pendingErp2Left: 0,
-    shopify: { awaitingDraft: 0, awaitingCheck: 0, mismatch: 0, completed: 0 },
+    shopify: { awaitingDraft: 0, alreadyDraft: 0, awaitingCheck: 0, mismatch: 0, completed: 0 },
     checkFailed: 0,
     after: { stillDrafted: 0, activeAgain: 0 },
   };

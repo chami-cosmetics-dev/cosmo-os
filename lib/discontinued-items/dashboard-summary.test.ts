@@ -28,6 +28,12 @@ describe("segmentsOf", () => {
     expect(segmentsOf(item({})).shopify).toBeNull();
     expect(segmentsOf(item({ stage: "DONE", presentIn: "ERP2_ONLY" })).shopify).toBeNull();
     expect(segmentsOf(item({ stage: "SHOPIFY_DRAFT" })).shopify).toBe("awaitingDraft");
+    // Already Draft in Shopify at approval: its own section, then After Drafting like Completed.
+    const already = segmentsOf(
+      item({ stage: "DONE", presentIn: "ERP1_ONLY", verification: "PASS", alreadyDrafted: true }),
+    );
+    expect(already.shopify).toBe("alreadyDraft");
+    expect(already.after).toBe("stillDrafted");
     expect(segmentsOf(item({ stage: "SHOPIFY_DRAFT", draftClicked: true })).shopify).toBe("awaitingCheck");
     expect(segmentsOf(item({ stage: "SHOPIFY_DRAFT", verification: "FAIL" })).shopify).toBe("mismatch");
     // Re-drafted after a mismatch: waiting for the new check, not still a mismatch.
@@ -56,6 +62,7 @@ describe("summarize", () => {
     item({ stage: "SHOPIFY_DRAFT", verification: "FAIL" }),
     item({ stage: "DONE", verification: "PASS" }),
     item({ stage: "DONE", verification: "PASS", madeActiveAgain: true }),
+    item({ stage: "DONE", verification: "PASS", alreadyDrafted: true }),
   ];
   const s = summarize(items);
   const sum = (r: Record<string, number>) => Object.values(r).reduce((a, b) => a + b, 0);
@@ -63,14 +70,14 @@ describe("summarize", () => {
   it("each item counted once per doughnut, doughnuts chain", () => {
     expect(sum(s.purchasing)).toBe(items.length);
     expect(sum(s.shopify)).toBe(s.purchasing.approved);
-    expect(sum(s.after)).toBe(s.shopify.completed);
+    expect(sum(s.after)).toBe(s.shopify.completed + s.shopify.alreadyDraft);
   });
 
   it("counts and splits", () => {
-    expect(s.purchasing).toEqual({ waiting: 1, pending: 3, approved: 5, notOnWebsite: 1 });
+    expect(s.purchasing).toEqual({ waiting: 1, pending: 3, approved: 6, notOnWebsite: 1 });
     expect([s.pendingErp1Left, s.pendingErp2Left]).toEqual([2, 1]);
-    expect(s.shopify).toEqual({ awaitingDraft: 1, awaitingCheck: 1, mismatch: 1, completed: 2 });
+    expect(s.shopify).toEqual({ awaitingDraft: 1, alreadyDraft: 1, awaitingCheck: 1, mismatch: 1, completed: 2 });
     expect(s.checkFailed).toBe(1);
-    expect(s.after).toEqual({ stillDrafted: 1, activeAgain: 1 });
+    expect(s.after).toEqual({ stillDrafted: 2, activeAgain: 1 });
   });
 });

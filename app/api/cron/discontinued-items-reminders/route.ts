@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { completeAlreadyDraftedItems } from "@/lib/discontinued-items/already-drafted.server";
 import {
   notifyPendingIfDue,
   notifyShopifyDraftIfNew,
@@ -25,8 +26,10 @@ export async function GET(request: NextRequest) {
   try {
     const now = new Date();
     const pending = await notifyPendingIfDue(now);
+    // Already Draft in Shopify → completed by the system, so SEO is not notified about them.
+    const alreadyDrafted = await completeAlreadyDraftedItems({ now });
     const shopifyDraft = await notifyShopifyDraftIfNew(now);
-    return NextResponse.json({ ok: true, pending, shopifyDraft });
+    return NextResponse.json({ ok: true, pending, alreadyDrafted, shopifyDraft });
   } catch (error) {
     console.error("[cron] discontinued-items-reminders failed:", error);
     return NextResponse.json(

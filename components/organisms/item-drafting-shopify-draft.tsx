@@ -45,6 +45,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { ShopifyDraftGroup } from "@/lib/discontinued-items/dashboard-summary";
 import { EXPECTED_SEARCH_CONSOLE_FILTERS } from "@/lib/discontinued-items/search-console";
 import {
   REDIRECTION_LINK_MAX,
@@ -85,11 +86,11 @@ function columnValueOf(row: ShopifyDraftRow, key: ColumnKey): string {
 }
 
 /** Dashboard groups → Draft column filter values (same labels as draftStateOf). */
-const DRAFT_GROUP_VALUES = {
+const DRAFT_GROUP_VALUES: Record<ShopifyDraftGroup, readonly string[]> = {
   awaitingDraft: ["To draft"],
   mismatch: ["Mismatch"],
   awaitingCheck: ["Drafted · check pending", "Check failed"],
-} as const;
+};
 
 /** The Draft column's state: To draft / Mismatch / Drafted · check pending / Check failed. */
 function draftStateOf(row: ShopifyDraftRow): string {
@@ -120,7 +121,7 @@ export function ItemDraftingShopifyDraft({
   /** A Draft click / Refresh changed the counts: reload the other tabs, badges and reminder bubbles. */
   onItemsChanged?: () => void;
   /** From the Dashboard: filter the Draft column to this group (a new nonce applies it again). */
-  draftFilterRequest?: { group: "awaitingDraft" | "awaitingCheck" | "mismatch"; nonce: number };
+  draftFilterRequest?: { group: ShopifyDraftGroup; nonce: number };
 }) {
   const [data, setData] = useState<ShopifyDraftData | null>(null);
   const [loading, setLoading] = useState(true);
