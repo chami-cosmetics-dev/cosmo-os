@@ -34,8 +34,6 @@ export function getContactDumpPermission(part: string) {
 }
 
 export function getOrderDumpPermission(report: string, range: string) {
-  if (range === "all") return REPORT_DUMP_PERMISSIONS.master;
-
   if (range === "historical-year" || range === "custom") {
     return report === "invoice-item"
       ? REPORT_DUMP_PERMISSIONS.historicalInvoiceItem

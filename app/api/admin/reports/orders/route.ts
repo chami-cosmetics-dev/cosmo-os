@@ -21,8 +21,21 @@ import {
   countCsvDataRows,
   dumpExposeHeaders,
 } from "@/lib/reports/dump-download";
+import {
+  ADAPT_DUMP_PAGE_SIZE,
+  adaptDumpCursor,
+  buildAdaptCatalogMap,
+  getHistoricalOrderInvoiceCsvHeaders,
+  getHistoricalOrderInvoiceItemCsvHeaders,
+  isHistoricalDumpRange,
+  mapAdaptInvoiceToDumpInvoiceRow,
+  mapAdaptInvoiceToDumpItemRows,
+  orderDumpCursor,
+  orderDumpStartCursor,
+  parseHistoricalDumpCursor,
+  withCosmoDataSource,
+} from "@/lib/reports/adapt-history-dump";
 import { dumpInvoiceShippingRuleFromStored } from "@/lib/reports/dump-invoice-shipping";
-import { createImportedInvoiceItemRows, createImportedInvoiceRow } from "@/lib/reports/imported-order-dump";
 import {
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
@@ -46,17 +59,15 @@ import { resolveCustomerPhone, resolveShippingPhone } from "@/lib/order-sms-reso
 import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
 import { parseAppCalendarDayEnd, parseAppCalendarDayStart } from "@/lib/format-datetime";
-import { cuidSchema } from "@/lib/validation";
 
 type ReportKind = "invoice" | "invoice-item";
-type RangeKind = "last-90" | "warehouse-360" | "historical-year" | "custom" | "all";
+type RangeKind = "last-90" | "warehouse-360" | "historical-year" | "custom";
 
 function parseReportKind(value: string | null): ReportKind {
   return value === "invoice-item" ? "invoice-item" : "invoice";
 }
 
 function parseRangeKind(value: string | null): RangeKind {
-  if (value === "all") return "all";
   if (value === "custom") return "custom";
   if (value === "warehouse-360") return "warehouse-360";
   if (value === "historical-year") return "historical-year";
@@ -64,8 +75,6 @@ function parseRangeKind(value: string | null): RangeKind {
 }
 
 function getRangeBounds(range: RangeKind, year: number | null, fromYmd: string | null, toYmd: string | null) {
-  if (range === "all") return { label: "all" };
-
   const now = new Date();
   if (range === "custom") {
     const from = parseAppCalendarDayStart(fromYmd);
@@ -292,10 +301,6 @@ function dumpMerchantName(input: {
 }
 
 function getReportLabel(report: ReportKind, range: RangeKind) {
-  if (range === "all") return report === "invoice-item"
-    ? "Full Invoice Item Dump"
-    : "Full Invoice Dump";
-
   if (report === "invoice-item") {
     if (range === "warehouse-360") return "Web-site Invoice Item Detail (Invoice Wise) [Processed Up to Last Day]";
     if (range === "historical-year" || range === "custom") return "Historical Invoice Item Details";
@@ -314,9 +319,6 @@ function getReportLabel(report: ReportKind, range: RangeKind) {
  */
 const DUMP_INVOICE_EXPORT_ORDERS = 2000;
 const DUMP_ITEM_EXPORT_ORDERS = 250;
-const DUMP_HISTORY_INVOICE_PAGE_SIZE = 1000;
-// An empty history cursor starts the imported phase after the last system order.
-const DUMP_HISTORY_CURSOR_PREFIX = "history:";
 const DUMP_ORDER_ORDER_BY = [
   { createdAt: "desc" as const },
   { id: "desc" as const },
@@ -327,6 +329,7 @@ const ORDER_DUMP_BASE_INCLUDE = {
     select: {
       name: true,
       erpnextCompany: true,
+      erpnextInstance: { select: { baseUrl: true, apiKey: true, apiSecret: true } },
     },
   },
   assignedMerchant: { select: { id: true, knownName: true, name: true, email: true, couponCodes: true } },
@@ -364,23 +367,18 @@ const ORDER_DUMP_ITEM_INCLUDE = {
   },
 } as const;
 
-const HISTORY_DUMP_SELECT = {
+const YEAR_HISTORY_DUMP_SELECT = {
   id: true,
   salesInvoiceNo: true,
-  salesInvoiceMasterId: true,
   invoiceDate: true,
   ttlAmount: true,
   locationName: true,
   paymentMethod: true,
   financialStatus: true,
   merchantKnownName: true,
-  origin: true,
-  importBatchId: true,
-  rawPaymentContext: true,
   lineItems: true,
-  company: { select: { name: true } },
-  companyLocation: { select: { companyId: true, name: true, erpnextCompany: true } },
-  contact: { select: { companyId: true, name: true, phoneNumber: true, email: true } },
+  companyLocation: { select: { companyId: true, name: true } },
+  contact: { select: { companyId: true, name: true, phoneNumber: true, email: true, address: true } },
 } satisfies Prisma.AdaptPurchaseHistorySelect;
 
 async function loadManualCreatorEmails(companyId: string, orderIds: string[]) {
@@ -446,20 +444,24 @@ export async function GET(request: NextRequest) {
   }
   const { from, to, label } = bounds;
   const after = request.nextUrl.searchParams.get("after")?.trim() ?? "";
-  const fullDump = range === "all";
-  const historyPage = fullDump && after.startsWith(DUMP_HISTORY_CURSOR_PREFIX);
-  const cursorId = historyPage ? after.slice(DUMP_HISTORY_CURSOR_PREFIX.length) : after;
-  if (fullDump && cursorId && !cuidSchema.safeParse(cursorId).success) {
-    return NextResponse.json({ error: "Invalid download cursor" }, { status: 400 });
+  const yearHistoryDump = isHistoricalDumpRange(range);
+  if (yearHistoryDump && (!from || !to)) {
+    return NextResponse.json({ error: "Invalid date range. Use YYYY-MM-DD dates." }, { status: 400 });
   }
 
   // Stored order fields only. A live ERP call per invoice made Dump 2 too slow
   // and the download was cut off before the last rows.
   const exportConcurrency = 16;
-  const orderWhere: Prisma.OrderWhereInput = {
+  const orderWhere = {
     companyId,
-    ...(from && to ? { createdAt: { gte: from, lte: to } } : {}),
+    createdAt: {
+      gte: from,
+      lte: to,
+    },
   };
+  const adaptWhere: Prisma.AdaptPurchaseHistoryWhereInput | null = yearHistoryDump && from && to
+    ? { companyId, invoiceDate: { gte: from, lte: to } }
+    : null;
 
   const filterParts = [`report=${report}`, `range=${range}`];
   if (range === "historical-year") filterParts.push(`year=${label}`);
@@ -468,9 +470,13 @@ export async function GET(request: NextRequest) {
   const filters = filterParts.join(";");
   const baseReportLabel = getReportLabel(report, range);
   const reportLabel = omitCustomerPhone ? `Utility ${baseReportLabel}` : baseReportLabel;
-  const csvHeaders = report === "invoice-item"
-    ? getOrderInvoiceItemCsvHeaders(omitCustomerPhone)
-    : getOrderInvoiceCsvHeaders(omitCustomerPhone);
+  const csvHeaders = yearHistoryDump
+    ? report === "invoice-item"
+      ? getHistoricalOrderInvoiceItemCsvHeaders(omitCustomerPhone)
+      : getHistoricalOrderInvoiceCsvHeaders(omitCustomerPhone)
+    : report === "invoice-item"
+      ? getOrderInvoiceItemCsvHeaders(omitCustomerPhone)
+      : getOrderInvoiceCsvHeaders(omitCustomerPhone);
   const fileName = omitCustomerPhone
     ? report === "invoice-item"
       ? `utility-order-invoice-item-${label}.csv`
@@ -492,42 +498,13 @@ export async function GET(request: NextRequest) {
     if (includeHeader) write(formatCsvHeaderLine(csvHeaders));
     if (request.signal.aborted) throw new Error("Historical export was interrupted before it completed");
 
-    if (historyPage) {
-      const pageSize = report === "invoice-item" ? DUMP_ITEM_EXPORT_ORDERS : DUMP_HISTORY_INVOICE_PAGE_SIZE;
-      const fetchedHistory = await prisma.adaptPurchaseHistory.findMany({
-        where: { companyId },
-        orderBy: [{ invoiceDate: "desc" }, { id: "desc" }],
-        take: pageSize + 1,
-        ...(cursorId ? { skip: 1, cursor: { id: cursorId, companyId } } : {}),
-        select: HISTORY_DUMP_SELECT,
-      });
-      hasMore = fetchedHistory.length > pageSize;
-      const invoices = hasMore ? fetchedHistory.slice(0, pageSize) : fetchedHistory;
-      if (hasMore) nextCursor = DUMP_HISTORY_CURSOR_PREFIX + invoices.at(-1)!.id;
-      for (const invoice of invoices) {
-        const location = invoice.companyLocation?.companyId === companyId ? invoice.companyLocation : null;
-        const history = {
-          ...invoice,
-          contact: invoice.contact.companyId === companyId ? invoice.contact : null,
-          locationName: invoice.locationName || location?.name || null,
-        };
-        if (report === "invoice-item") {
-          for (const row of createImportedInvoiceItemRows(history)) {
-            write(formatCsvDataLine(csvHeaders, row));
-          }
-        } else {
-          const row = createImportedInvoiceRow(history, location?.erpnextCompany || invoice.company.name);
-          write(formatCsvDataLine(csvHeaders, row));
-        }
-      }
-    } else {
-      const [liveRows, importedInvoices, merchantUsers, userToGroup, creatorUsers] = await Promise.all([
-        fullDump
-          ? report === "invoice" && !after ? prisma.order.count({ where: orderWhere }) : 0
-          : report === "invoice-item"
-            ? prisma.orderLineItem.count({ where: { order: orderWhere } })
-            : prisma.order.count({ where: orderWhere }),
-        fullDump && report === "invoice" && !after ? prisma.adaptPurchaseHistory.count({ where: { companyId } }) : 0,
+    if (yearHistoryDump && adaptWhere) {
+      const yearCursor = parseHistoricalDumpCursor(after);
+      const [adaptInvoiceCount, liveRows, merchantUsers, userToGroup, creatorUsers] = await Promise.all([
+        prisma.adaptPurchaseHistory.count({ where: adaptWhere }),
+        report === "invoice-item"
+          ? prisma.orderLineItem.count({ where: { order: orderWhere } })
+          : prisma.order.count({ where: orderWhere }),
         prisma.user.findMany({
           where: { companyId, couponCodes: { isEmpty: false } },
           select: { id: true, knownName: true, name: true, email: true, couponCodes: true },
@@ -538,20 +515,401 @@ export async function GET(request: NextRequest) {
           select: { email: true, shopifyUserIds: true, erpnextUsername: true },
         }),
       ]);
-      totalCsvRows = liveRows + importedInvoices;
+      totalCsvRows = adaptInvoiceCount + liveRows;
       const couponToMerchant = buildCouponToMerchantMap(merchantUsers, userToGroup);
       const shopifyUserIdToEmail = buildShopifyUserIdToEmailMap(creatorUsers);
       const erpnextUsernameToEmail = buildErpnextUsernameToEmailMap(creatorUsers);
-      const pagination: Pick<Prisma.OrderFindManyArgs, "skip" | "cursor"> = cursorId
-        ? { skip: 1, cursor: fullDump ? { id: cursorId, companyId } : { id: cursorId } }
-        : {};
+
+      let orderPhase = yearCursor.phase === "order";
+      let orderCursorId = yearCursor.phase === "order" ? yearCursor.id : "";
+
+      if (!orderPhase) {
+        const fetchedAdapt = await prisma.adaptPurchaseHistory.findMany({
+          where: adaptWhere,
+          orderBy: [{ invoiceDate: "asc" }, { id: "asc" }],
+          take: ADAPT_DUMP_PAGE_SIZE + 1,
+          ...(yearCursor.id ? { skip: 1, cursor: { id: yearCursor.id } } : {}),
+          select: YEAR_HISTORY_DUMP_SELECT,
+        });
+        const hasMoreAdapt = fetchedAdapt.length > ADAPT_DUMP_PAGE_SIZE;
+        const adaptPage = hasMoreAdapt ? fetchedAdapt.slice(0, ADAPT_DUMP_PAGE_SIZE) : fetchedAdapt;
+
+        if (adaptPage.length > 0) {
+          const catalogItems = await prisma.productItem.findMany({
+            where: { companyId, sku: { not: null } },
+            select: { sku: true, barcode: true, vendor: { select: { name: true } } },
+          });
+          const catalog = buildAdaptCatalogMap(
+            catalogItems.map((item) => ({
+              sku: item.sku,
+              barcode: item.barcode,
+              vendorName: item.vendor?.name ?? null,
+            })),
+          );
+
+          for (const invoice of adaptPage) {
+            const location = invoice.companyLocation?.companyId === companyId ? invoice.companyLocation : null;
+            const contact = invoice.contact?.companyId === companyId ? invoice.contact : null;
+            const input = {
+              salesInvoiceNo: invoice.salesInvoiceNo,
+              invoiceDate: invoice.invoiceDate,
+              ttlAmount: invoice.ttlAmount,
+              locationName: invoice.locationName || location?.name || null,
+              paymentMethod: invoice.paymentMethod,
+              merchantKnownName: invoice.merchantKnownName,
+              financialStatus: invoice.financialStatus,
+              lineItems: invoice.lineItems,
+              contact,
+            };
+            if (report === "invoice-item") {
+              for (const row of mapAdaptInvoiceToDumpItemRows(input, catalog)) {
+                write(formatCsvDataLine(csvHeaders, row));
+              }
+            } else {
+              write(formatCsvDataLine(csvHeaders, mapAdaptInvoiceToDumpInvoiceRow(input, catalog)));
+            }
+          }
+
+          if (hasMoreAdapt) {
+            hasMore = true;
+            nextCursor = adaptDumpCursor(adaptPage.at(-1)!.id);
+          } else if (liveRows > 0) {
+            hasMore = true;
+            nextCursor = orderDumpStartCursor();
+          }
+        } else if (liveRows > 0) {
+          orderPhase = true;
+          orderCursorId = "";
+        }
+      }
+
+      if (orderPhase) {
+        const pagination: Pick<Prisma.OrderFindManyArgs, "skip" | "cursor"> = orderCursorId
+          ? { skip: 1, cursor: { id: orderCursorId } }
+          : {};
+
+        if (report === "invoice-item") {
+          const fetchedOrders = await prisma.order.findMany({
+            where: orderWhere,
+            orderBy: DUMP_ORDER_ORDER_BY,
+            take: DUMP_ITEM_EXPORT_ORDERS + 1,
+            ...pagination,
+            include: ORDER_DUMP_ITEM_INCLUDE,
+          });
+          hasMore = fetchedOrders.length > DUMP_ITEM_EXPORT_ORDERS;
+          const orders = hasMore ? fetchedOrders.slice(0, DUMP_ITEM_EXPORT_ORDERS) : fetchedOrders;
+          nextCursor = hasMore ? orderDumpCursor(orders.at(-1)?.id ?? "") : "";
+          if (orders.length > 0) {
+            const orderIdToManualCreatorEmail = await loadManualCreatorEmails(
+              companyId,
+              orders.map((order) => order.id),
+            );
+            const orderIdToKokoRefNumber = await loadKokoRefNumbersForOrders(
+              companyId,
+              orders.map((order) => order.id),
+            );
+            await writeOrderedConcurrentLines(orders, write, async (order) => {
+              const customerName =
+                getCustomerName(order.shippingAddress) ||
+                getCustomerName(order.billingAddress) ||
+                order.customerEmail ||
+                "";
+              const paymentGateway = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "";
+              const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+              const createdBy = resolveOrderCreatedByEmail({
+                sourceName: order.sourceName,
+                shopifyUserId: order.shopifyUserId,
+                customerEmail: order.customerEmail,
+                assignedMerchantEmail: order.assignedMerchant?.email ?? null,
+                rawPayload: order.rawPayload,
+                auditLogEmail: orderIdToManualCreatorEmail.get(order.id) ?? null,
+                shopifyUserIdToEmail,
+                erpnextUsernameToEmail,
+              });
+              const merchantCouponCode = getMerchantCouponCode({
+                sourceName: order.sourceName,
+                discountCodes: order.discountCodes,
+                rawPayload: order.rawPayload,
+                assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+              });
+              const couponCode = getOrderDiscountCouponCode({
+                sourceName: order.sourceName,
+                discountCodes: order.discountCodes,
+                rawPayload: order.rawPayload,
+              });
+              const merchantName = dumpMerchantName({
+                merchantCouponCode,
+                discountCouponCode: couponCode,
+                couponToMerchant,
+                assignedMerchant: order.assignedMerchant,
+                userToGroup,
+              });
+              const linePricing = await resolveOrderLineItemsPricing({
+                sourceName: order.sourceName,
+                rawPayload: order.rawPayload,
+                name: order.name,
+                erpnextInvoiceId: order.erpnextInvoiceId,
+                allowLiveErpLookup: false,
+                lineItems: order.lineItems.map((item) => ({
+                  sku: item.productItem.sku,
+                  quantity: item.quantity,
+                  price: item.price.toString(),
+                })),
+              });
+              const hasLineLevelDiscount = linePricing.some(
+                (pricing) => pricing.originalPrice != null || pricing.originalTotal != null,
+              );
+              const orderDiscount = !hasLineLevelDiscount && order.totalDiscounts?.gt(0)
+                ? order.totalDiscounts
+                : null;
+              const orderItemSubtotal = orderDiscount
+                ? linePricing.reduce(
+                    (sum, pricing, index) => {
+                      const fallbackTotal = new Prisma.Decimal(order.lineItems[index]?.price ?? 0)
+                        .mul(order.lineItems[index]?.quantity ?? 0);
+                      return sum.add(new Prisma.Decimal(pricing.originalTotal ?? pricing.saleTotal ?? fallbackTotal));
+                    },
+                    new Prisma.Decimal(0),
+                  )
+                : new Prisma.Decimal(0);
+
+              const itemRows = order.lineItems.map((item, index) => {
+                const pricing = linePricing[index];
+                const unitPrice = pricing?.originalPrice ?? pricing?.salePrice ?? item.price.toString();
+                const lineTotal = pricing?.originalTotal ?? pricing?.saleTotal ?? new Prisma.Decimal(item.price).mul(item.quantity).toString();
+                const hasDiscount = pricing?.originalPrice != null || pricing?.originalTotal != null;
+                let discountedPrice = hasDiscount ? (pricing?.salePrice ?? item.price.toString()) : null;
+                let afterDiscountTotal = hasDiscount ? (pricing?.saleTotal ?? new Prisma.Decimal(item.price).mul(item.quantity).toString()) : null;
+
+                if (!hasDiscount && orderDiscount && orderItemSubtotal.gt(0) && item.quantity > 0) {
+                  const lineTotalDecimal = new Prisma.Decimal(lineTotal);
+                  const allocatedDiscount = Prisma.Decimal.min(
+                    lineTotalDecimal,
+                    orderDiscount.mul(lineTotalDecimal).div(orderItemSubtotal),
+                  );
+                  const allocatedTotal = Prisma.Decimal.max(
+                    new Prisma.Decimal(0),
+                    lineTotalDecimal.minus(allocatedDiscount),
+                  );
+                  afterDiscountTotal = allocatedTotal.toDecimalPlaces(2).toString();
+                  discountedPrice = allocatedTotal.div(item.quantity).toDecimalPlaces(2).toString();
+                }
+
+                return withCosmoDataSource(createOrderInvoiceItemRow({
+                  invoiceNo,
+                  erpInvoiceId: order.erpnextInvoiceId,
+                  sourceName: order.sourceName,
+                  merchantCouponCode,
+                  couponCode,
+                  createdAt: order.createdAt,
+                  locationName: order.companyLocation.name,
+                  customerName,
+                  customerEmail: order.customerEmail,
+                  customerPhone: resolveCustomerPhone(order) ?? null,
+                  sku: item.productItem.sku,
+                  barcode: item.productItem.barcode,
+                  brand: getPayloadLineItemBrand({
+                    rawPayload: order.rawPayload,
+                    shopifyLineItemId: item.shopifyLineItemId,
+                    sku: item.productItem.sku,
+                    index,
+                  }) ?? item.productItem.vendor?.name ?? null,
+                  productTitle: item.productItem.productTitle,
+                  quantity: item.quantity,
+                  unitPrice,
+                  discountedPrice,
+                  afterDiscountTotal,
+                  lineTotal,
+                  fulfillmentStage: order.fulfillmentStage,
+                  financialStatus: order.financialStatus,
+                  cancelReason: order.cancelReason,
+                  returnCancelRemark: order.returns[0]?.cancelRemark,
+                  returnRemark: order.returns[0]?.returnRemark,
+                  deliveryCompleteAt: order.deliveryCompleteAt,
+                  deliveryCompleteBy: getUserDisplayName(order.deliveryCompleteBy),
+                  invoiceCompleteAt: order.invoiceCompleteAt,
+                  fulfillmentStatus: order.fulfillmentStatus,
+                  paymentGateway,
+                  merchantName,
+                  createdBy,
+                  kokoRefNumber: orderIdToKokoRefNumber.get(order.id) ?? "",
+                }));
+              });
+              return itemRows.map((row) => formatCsvDataLine(csvHeaders, row)).join("");
+            }, exportConcurrency);
+          }
+        } else {
+          const fetchedOrders = await prisma.order.findMany({
+            where: orderWhere,
+            orderBy: DUMP_ORDER_ORDER_BY,
+            take: DUMP_INVOICE_EXPORT_ORDERS + 1,
+            ...pagination,
+            include: ORDER_DUMP_INVOICE_INCLUDE,
+          });
+          hasMore = fetchedOrders.length > DUMP_INVOICE_EXPORT_ORDERS;
+          const orders = hasMore ? fetchedOrders.slice(0, DUMP_INVOICE_EXPORT_ORDERS) : fetchedOrders;
+          nextCursor = hasMore ? orderDumpCursor(orders.at(-1)?.id ?? "") : "";
+          if (orders.length > 0) {
+            const orderIdToManualCreatorEmail = await loadManualCreatorEmails(
+              companyId,
+              orders.map((order) => order.id),
+            );
+            const orderIdToKokoRefNumber = await loadKokoRefNumbersForOrders(
+              companyId,
+              orders.map((order) => order.id),
+            );
+            await writeOrderedConcurrentLines(orders, write, async (order) => {
+              const customerName =
+                getCustomerName(order.shippingAddress) ||
+                getCustomerName(order.billingAddress) ||
+                order.customerEmail ||
+                "";
+              const paymentGateway = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "";
+              const merchantCouponCode = getMerchantCouponCode({
+                sourceName: order.sourceName,
+                discountCodes: order.discountCodes,
+                rawPayload: order.rawPayload,
+                assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+                joinAllDiscountCodes: true,
+              });
+              const discountCoupon = getOrderDiscountCouponCode({
+                sourceName: order.sourceName,
+                discountCodes: order.discountCodes,
+                rawPayload: order.rawPayload,
+              });
+              const couponCode = joinDumpCouponCodes(merchantCouponCode, discountCoupon);
+              const merchantName = dumpMerchantName({
+                merchantCouponCode,
+                discountCouponCode: discountCoupon,
+                couponToMerchant,
+                assignedMerchant: order.assignedMerchant,
+                userToGroup,
+              });
+              const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+              const createdBy = resolveOrderCreatedByEmail({
+                sourceName: order.sourceName,
+                shopifyUserId: order.shopifyUserId,
+                customerEmail: order.customerEmail,
+                assignedMerchantEmail: order.assignedMerchant?.email ?? null,
+                rawPayload: order.rawPayload,
+                auditLogEmail: orderIdToManualCreatorEmail.get(order.id) ?? null,
+                shopifyUserIdToEmail,
+                erpnextUsernameToEmail,
+              });
+              const shippingAddress = formatAddress(order.shippingAddress);
+              const shippingRule = dumpInvoiceShippingRuleFromStored({
+                totalShipping: decimalToString(order.totalShipping),
+                shippingLines: order.shippingLines,
+                rawPayload: order.rawPayload,
+                sourceName: order.sourceName,
+                discountCodes: order.discountCodes,
+                dispatchedToCustomer: order.dispatchedToCustomer,
+                shippingAddress,
+              });
+
+              return formatCsvDataLine(csvHeaders, withCosmoDataSource(createOrderInvoiceRow({
+                invoiceNo,
+                erpInvoiceId: order.erpnextInvoiceId,
+                sourceName: order.sourceName,
+                merchantCouponCode,
+                couponCode,
+                merchantName,
+                fulfillmentStage: order.fulfillmentStage,
+                shippingService: getShippingService({
+                  ...order,
+                  locationName: order.companyLocation.name,
+                }),
+                createdAt: order.createdAt,
+                companyName: order.companyLocation.erpnextCompany ?? order.companyLocation.name,
+                posProfile: order.posProfile ?? null,
+                posWarehouse: order.erpnextWarehouse ?? null,
+                customerName,
+                customerEmail: order.customerEmail,
+                customerPhone: resolveCustomerPhone(order) ?? null,
+                shippingPhone: resolveShippingPhone(order) ?? null,
+                billingAddress: formatAddress(order.billingAddress),
+                shippingAddress,
+                financialStatus: order.financialStatus,
+                cancelReason: order.cancelReason,
+                returnCancelRemark: order.returns[0]?.cancelRemark,
+                returnRemark: order.returns[0]?.returnRemark,
+                fulfillmentStatus: order.fulfillmentStatus,
+                paymentGateway,
+                subtotalPrice: decimalToString(order.subtotalPrice),
+                discounts: decimalToString(order.totalDiscounts),
+                shippingTotal: decimalToString(order.totalShipping),
+                grandTotal: order.totalPrice.toString(),
+                itemCount: order._count.lineItems,
+                printCount: order.printCount,
+                packageReadyAt: order.packageReadyAt,
+                dispatchedAt: order.dispatchedAt,
+                dispatchedBy: getUserDisplayName(order.dispatchedBy),
+                lastPrintedAt: order.lastPrintedAt,
+                lastPrintedBy: getUserDisplayName(order.lastPrintedBy),
+                revertedFromInvoiceCompleteAt: order.revertedFromInvoiceCompleteAt,
+                deliveryCompleteAt: order.deliveryCompleteAt,
+                deliveryCompleteBy: getUserDisplayName(order.deliveryCompleteBy),
+                invoiceCompleteAt: order.invoiceCompleteAt,
+                invoiceCompleteBy: orderAlreadyPaidByCardCheckout(order)
+                  ? getPaymentMethodInfo({
+                      paymentGatewayPrimary: order.paymentGatewayPrimary,
+                      paymentGatewayNames: order.paymentGatewayNames,
+                    }).label
+                  : getUserDisplayName(order.invoiceCompleteBy),
+                shippingRule,
+                createdBy,
+                kokoRefNumber: orderIdToKokoRefNumber.get(order.id) ?? "",
+              })));
+            }, exportConcurrency);
+          }
+        }
+      }
+    } else {
+      const [totalOrders, merchantUsers, userToGroup, creatorUsers, totalLineItems] = await Promise.all([
+        prisma.order.count({ where: orderWhere }),
+        prisma.user.findMany({
+          where: {
+            companyId,
+            couponCodes: { isEmpty: false },
+          },
+          select: {
+            id: true,
+            knownName: true,
+            name: true,
+            email: true,
+            couponCodes: true,
+          },
+        }),
+        getMerchantGroupUserMap(companyId),
+        prisma.user.findMany({
+          where: {
+            companyId,
+            OR: [
+              { shopifyUserIds: { isEmpty: false } },
+              { erpnextUsername: { not: null } },
+            ],
+          },
+          select: {
+            email: true,
+            shopifyUserIds: true,
+            erpnextUsername: true,
+          },
+        }),
+        report === "invoice-item"
+          ? prisma.orderLineItem.count({ where: { order: orderWhere } })
+          : Promise.resolve(0),
+      ]);
+      const couponToMerchant = buildCouponToMerchantMap(merchantUsers, userToGroup);
+      const shopifyUserIdToEmail = buildShopifyUserIdToEmailMap(creatorUsers);
+      const erpnextUsernameToEmail = buildErpnextUsernameToEmailMap(creatorUsers);
+      totalCsvRows = report === "invoice-item" ? totalLineItems : totalOrders;
 
         if (report === "invoice-item") {
             const fetchedOrders = await prisma.order.findMany({
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
               take: DUMP_ITEM_EXPORT_ORDERS + 1,
-              ...pagination,
+              ...(after ? { skip: 1, cursor: { id: after } } : {}),
               include: ORDER_DUMP_ITEM_INCLUDE,
             });
             hasMore = fetchedOrders.length > DUMP_ITEM_EXPORT_ORDERS;
@@ -609,6 +967,7 @@ export async function GET(request: NextRequest) {
         rawPayload: order.rawPayload,
         name: order.name,
         erpnextInvoiceId: order.erpnextInvoiceId,
+        erpnextInstance: order.companyLocation.erpnextInstance,
         allowLiveErpLookup: false,
         lineItems: order.lineItems.map((item) => ({
           sku: item.productItem.sku,
@@ -703,7 +1062,7 @@ export async function GET(request: NextRequest) {
               where: orderWhere,
               orderBy: DUMP_ORDER_ORDER_BY,
               take: DUMP_INVOICE_EXPORT_ORDERS + 1,
-              ...pagination,
+              ...(after ? { skip: 1, cursor: { id: after } } : {}),
               include: ORDER_DUMP_INVOICE_INCLUDE,
             });
             hasMore = fetchedOrders.length > DUMP_INVOICE_EXPORT_ORDERS;
@@ -824,10 +1183,6 @@ export async function GET(request: NextRequest) {
             }
         }
 
-      if (fullDump && !hasMore) {
-        hasMore = true;
-        nextCursor = DUMP_HISTORY_CURSOR_PREFIX;
-      }
     }
 
     if (!hasMore && !request.signal.aborted) {

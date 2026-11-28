@@ -571,7 +571,7 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: REPORT_DUMP_PERMISSIONS.master,
-    description: "Download Master Reports and full invoice dumps",
+    description: "Download the finance master dump (live order line detail)",
   },
   {
     key: "settings.fulfillment",
