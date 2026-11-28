@@ -136,6 +136,12 @@ function toNumber(value: string | number | null | undefined) {
   return Number.isFinite(n) ? n : 0
 }
 
+function amountToNumber(value: Prisma.Decimal | string | number | null | undefined) {
+  if (value == null) return 0
+  if (typeof value === "object" && "toString" in value) return toNumber(value.toString())
+  return toNumber(value)
+}
+
 function money(value: number) {
   return value.toFixed(2)
 }
@@ -182,7 +188,7 @@ export function mapAdaptInvoiceToDumpInvoiceRow(
 ): HistoricalInvoiceCsvRow {
   const { products, merchantCoupon, posSale, shippingTotal } = splitAdaptLines(input.lineItems)
   const invoiceNo = input.salesInvoiceNo?.trim() || ""
-  const invoiceTotal = toNumber(input.ttlAmount?.toString?.() ?? input.ttlAmount)
+  const invoiceTotal = amountToNumber(input.ttlAmount)
   let lineTotal = 0
   for (const item of products) {
     lineTotal += toNumber(item.quantity) * toNumber(item.unitPrice)
@@ -255,7 +261,7 @@ export function mapAdaptInvoiceToDumpItemRows(
 ): HistoricalInvoiceItemCsvRow[] {
   const { products, merchantCoupon, posSale } = splitAdaptLines(input.lineItems)
   const invoiceNo = input.salesInvoiceNo?.trim() || ""
-  const invoiceTotal = toNumber(input.ttlAmount?.toString?.() ?? input.ttlAmount)
+  const invoiceTotal = amountToNumber(input.ttlAmount)
   const customerName = input.contact?.name?.trim() ?? ""
   const customerPhone = input.contact?.phoneNumber?.trim() || null
   const customerEmail = input.contact?.email?.trim() || null
