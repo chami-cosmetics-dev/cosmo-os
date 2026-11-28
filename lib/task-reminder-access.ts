@@ -150,6 +150,8 @@ const ALL_TASK_REMINDER_CATEGORIES = [
   "item_creation",
   "shop_to_main",
   "citypak_delivery_failed",
+  "discontinued_pending",
+  "discontinued_shopify_draft",
 ] as const satisfies readonly TaskReminderCategory[];
 
 export function listVisibleTaskReminderCategories(

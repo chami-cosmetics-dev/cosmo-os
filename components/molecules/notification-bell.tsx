@@ -28,6 +28,15 @@ type NotificationItem = {
 
 function notificationHref(item: NotificationItem) {
   if (item.entityType === "ApprovalRequest") return "/dashboard/approvals";
+  if (item.type === "discontinued_pending") {
+    return "/dashboard/discontinued-items/item-drafting?tab=purchasing_approval";
+  }
+  if (item.type === "discontinued_active_again_mail_failed") {
+    return "/dashboard/settings/email-templates";
+  }
+  if (item.type === "discontinued_shopify_draft" || item.type === "discontinued_check_failed") {
+    return "/dashboard/discontinued-items/item-drafting?tab=shopify_draft";
+  }
   if (item.type === "loyalty_responded" || item.entityType === "ContactMaster") {
     return "/dashboard/customer-insight#loyalty-queue";
   }

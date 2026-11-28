@@ -4228,3 +4228,153 @@ model OrderAvailabilityPriorityWarehouse {
   @@unique([companyId, warehouse])
   @@index([companyId])
 }
+
+enum DiscontinuedItemPresence {
+  BOTH
+  ERP1_ONLY
+  ERP2_ONLY
+}
+
+enum DiscontinuedItemVerification {
+  PASS
+  FAIL
+}
+
+/// Purchasing Approval status. PENDING = in both ERPs, only one disabled. SHOPIFY_DRAFT = every
+/// applicable ERP disabled and on ERP 1 (goes to the Shopify Draft tab). DONE = finished
+/// (ERP 2 only items finish at approval; nothing goes to SEO).
+enum DiscontinuedItemStage {
+  AWAITING_APPROVAL
+  PENDING
+  SHOPIFY_DRAFT
+  DONE
+}
+
+/// Discontinued Items history: one row per variant SKU, tracking it from ERP disabling through
+/// Shopify drafting, verification and (optionally) reactivation. "*By" fields hold the user's
+/// display name, like ItemCreation.
+model DiscontinuedItem {
+  id               String                        @id @default(cuid())
+  sku              String                        @unique
+  productTitle     String?
+  priorityStatus   String?
+  maxSaleQty       Int?
+  impressions      Int?
+  clicks           Int?
+  ctr              Decimal?                      @db.Decimal(7, 4)
+  avgPosition      Decimal?                      @db.Decimal(8, 2)
+  presentIn        DiscontinuedItemPresence?
+  erp1DisabledDate DateTime?
+  erp1DisabledBy   String?
+  erp2DisabledDate DateTime?
+  erp2DisabledBy   String?
+  /// The ERP 1 / ERP 2 click ran in test mode (dry run): nothing was changed in that ERP.
+  erp1DryRun       Boolean                       @default(false)
+  erp2DryRun       Boolean                       @default(false)
+  stage            DiscontinuedItemStage         @default(AWAITING_APPROVAL)
+  /// When every applicable ERP was disabled.
+  approvedDate     DateTime?
+  /// When the SEO "approved for drafting" notification counted this item (sent once per item).
+  seoNotifiedAt    DateTime?
+  disableReason    String?
+  redirectionLink  String?
+  draftClickedDate DateTime?
+  draftClickedBy   String?
+  verification     DiscontinuedItemVerification?
+  /// When `verification` was set (the Shopify check of the latest Draft click).
+  verifiedAt       DateTime?
+  /// The weekly "active again" mail included this item (set only after the mail was sent).
+  activeAgainNotifiedAt DateTime?
+  doneDate         DateTime?
+  madeActiveAgain  Boolean                       @default(false)
+  activeDate       DateTime?
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+
+  draftAttempts    DiscontinuedItemDraftAttempt[]
+
+  @@index([stage])
+  @@index([presentIn])
+  @@index([doneDate])
+  @@index([createdAt])
+}
+
+/// Result of the Shopify check of one Draft click.
+enum DiscontinuedDraftCheckResult {
+  /// Waiting for the check (daily at 5:30 PM).
+  AWAITING
+  /// Shopify status Draft.
+  PASS
+  /// Shopify status Active or Archived (mismatch).
+  FAIL
+  /// Could not check (no handle, product not found, Shopify error): retried every run.
+  CHECK_FAILED
+}
+
+/// Every Draft click on a Discontinued Item and its Shopify check — earlier attempts are kept.
+model DiscontinuedItemDraftAttempt {
+  id                    String                       @id @default(cuid())
+  itemId                String
+  clickedAt             DateTime
+  clickedBy             String
+  result                DiscontinuedDraftCheckResult @default(AWAITING)
+  /// Shopify status read (DRAFT / ACTIVE / ARCHIVED), when found.
+  shopifyStatus         String?
+  /// Product handle used for the check.
+  handle                String?
+  checkedAt             DateTime?
+  checkCount            Int                          @default(0)
+  /// Why the last check could not be done (CHECK_FAILED).
+  lastError             String?
+  /// "Check failed" notification sent for this attempt (once).
+  checkFailedNotifiedAt DateTime?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+  item                  DiscontinuedItem             @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([result, clickedAt])
+  @@index([itemId, clickedAt])
+}
+
+/// Discontinued Items notifications: when each one was last sent, so it is not repeated.
+/// key = "pending" (Purchasing: first send, then weekly while any remain; removed at 0).
+model DiscontinuedItemReminderState {
+  key        String   @id
+  lastSentAt DateTime
+  lastCount  Int
+  updatedAt  DateTime @updatedAt
+}
+
+/// Discontinued Items → Shopify Draft: an uploaded Search Console "Pages" export (latest one is
+/// used). Metrics are merged per product handle: { handle: [clicks, impressions, Σ(impressions ×
+/// position)] }.
+model DiscontinuedSearchConsoleReport {
+  id           String   @id @default(cuid())
+  fileName     String
+  /// The file's own "created" date (workbook properties); must be today (Sri Lanka) to upload.
+  fileCreatedAt DateTime?
+  uploadedBy   String
+  uploadedAt   DateTime @default(now())
+  /// Rows on the Pages sheet / product-page rows used / rows skipped (not a product page, bad numbers).
+  pagesRead    Int
+  productRows  Int
+  skippedRows  Int
+  /// Distinct product handles in the file.
+  handleCount  Int
+  /// The Filters sheet as read ({ "Search type": "...", ... }).
+  filters      Json
+  /// Messages shown with the report (e.g. a filter that differs from the expected one).
+  warnings     Json
+  metrics      Json
+
+  @@index([uploadedAt])
+}
+
+/// Discontinued Items settings, editable on the screen (not hard-coded). key → JSON value, e.g.
+/// "active_again_mail" = { weekday, time, lastRunWeek } for the weekly "active again" mail.
+model DiscontinuedItemSetting {
+  key       String   @id
+  value     Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
