@@ -5,6 +5,7 @@ import {
   createOrderInvoiceRow,
   getOrderInvoiceCsvHeaders,
   getOrderInvoiceItemCsvHeaders,
+  resolveDumpPaymentGateway,
   type OrderInvoiceCsvRow,
   type OrderInvoiceItemCsvRow,
 } from "@/lib/reports/order-dump"
@@ -33,6 +34,7 @@ export type AdaptDumpInvoiceInput = {
   ttlAmount: Prisma.Decimal | string | number | null
   locationName: string | null
   paymentMethod: string | null
+  rawPaymentContext?: Prisma.JsonValue | null
   merchantKnownName: string | null
   financialStatus: string | null
   lineItems: Prisma.JsonValue | null
@@ -245,7 +247,10 @@ export function mapAdaptInvoiceToDumpInvoiceRow(
   const customerEmail = input.contact?.email?.trim() || null
   const address = input.contact?.address?.trim() ?? ""
   const locationName = input.locationName?.trim() ?? ""
-  const paymentGateway = input.paymentMethod?.trim() ?? ""
+  const paymentGateway = resolveDumpPaymentGateway({
+    paymentMethod: input.paymentMethod,
+    rawPaymentContext: input.rawPaymentContext,
+  })
   const financialStatus = input.financialStatus?.trim() || "paid"
 
   const row = createOrderInvoiceRow({
@@ -312,7 +317,10 @@ export function mapAdaptInvoiceToDumpItemRows(
   const customerPhone = input.contact?.phoneNumber?.trim() || null
   const customerEmail = input.contact?.email?.trim() || null
   const locationName = input.locationName?.trim() ?? ""
-  const paymentGateway = input.paymentMethod?.trim() ?? ""
+  const paymentGateway = resolveDumpPaymentGateway({
+    paymentMethod: input.paymentMethod,
+    rawPaymentContext: input.rawPaymentContext,
+  })
   const financialStatus = input.financialStatus?.trim() || "paid"
   const merchantName = input.merchantKnownName?.trim() ?? ""
   const erpInvoiceId = input.salesInvoiceMasterId?.trim() || null

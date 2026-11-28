@@ -30,11 +30,13 @@ import {
   isHistoricalDumpRange,
   mapAdaptInvoiceToDumpInvoiceRow,
   mapAdaptInvoiceToDumpItemRows,
+  matchAdaptCatalog,
   orderDumpCursor,
   orderDumpStartCursor,
   parseHistoricalDumpCursor,
   resolveDumpBrand,
   withCosmoDataSource,
+  type AdaptCatalogHit,
 } from "@/lib/reports/adapt-history-dump";
 import { dumpInvoiceShippingRuleFromStored } from "@/lib/reports/dump-invoice-shipping";
 import {
@@ -44,6 +46,7 @@ import {
   getOrderInvoiceItemCsvHeaders,
   joinDumpCouponCodes,
   resolveDumpMerchantName,
+  resolveDumpPaymentGateway,
 } from "@/lib/reports/order-dump";
 import {
   buildCouponToMerchantMap,
@@ -73,6 +76,58 @@ function parseRangeKind(value: string | null): RangeKind {
   if (value === "warehouse-360") return "warehouse-360";
   if (value === "historical-year") return "historical-year";
   return "last-90";
+}
+
+function dumpOrderPaymentGateway(order: {
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames: string[];
+  paymentEntries: Array<{ modeOfPayment: string | null }>;
+  rawPayload: unknown;
+}) {
+  return resolveDumpPaymentGateway({
+    paymentGatewayPrimary: order.paymentGatewayPrimary,
+    paymentGatewayNames: order.paymentGatewayNames,
+    paymentEntryModes: order.paymentEntries.map((entry) => entry.modeOfPayment),
+    rawPayload: order.rawPayload,
+  });
+}
+
+async function loadDumpBrandCatalog(companyId: string) {
+  const catalogItems = await prisma.productItem.findMany({
+    where: { companyId, sku: { not: null } },
+    select: { sku: true, barcode: true, vendor: { select: { name: true } } },
+  });
+  return buildAdaptCatalogMap(
+    catalogItems.map((item) => ({
+      sku: item.sku,
+      barcode: item.barcode,
+      vendorName: item.vendor?.name ?? null,
+    })),
+  );
+}
+
+function dumpLineBrand(input: {
+  sku: string | null;
+  productTitle: string | null;
+  vendorName: string | null | undefined;
+  rawPayload: Prisma.JsonValue | null;
+  shopifyLineItemId: string;
+  index: number;
+  vendorNames: string[];
+  catalog: Map<string, AdaptCatalogHit>;
+}) {
+  const catalogHit = matchAdaptCatalog(input.catalog, input.sku);
+  return resolveDumpBrand({
+    catalogBrand: input.vendorName?.trim() || catalogHit.brand || null,
+    payloadBrand: getPayloadLineItemBrand({
+      rawPayload: input.rawPayload,
+      shopifyLineItemId: input.shopifyLineItemId,
+      sku: input.sku,
+      index: input.index,
+    }),
+    productTitle: input.productTitle,
+    vendorNames: input.vendorNames,
+  });
 }
 
 function getRangeBounds(range: RangeKind, year: number | null, fromYmd: string | null, toYmd: string | null) {
@@ -340,6 +395,7 @@ const ORDER_DUMP_BASE_INCLUDE = {
   lastPrintedBy: { select: { knownName: true, name: true, email: true } },
   deliveryCompleteBy: { select: { knownName: true, name: true, email: true } },
   invoiceCompleteBy: { select: { knownName: true, name: true, email: true } },
+  paymentEntries: { select: { modeOfPayment: true } },
   returns: {
     orderBy: { returnDate: "desc" as const },
     take: 1,
@@ -376,6 +432,7 @@ const YEAR_HISTORY_DUMP_SELECT = {
   ttlAmount: true,
   locationName: true,
   paymentMethod: true,
+  rawPaymentContext: true,
   financialStatus: true,
   merchantKnownName: true,
   lineItems: true,
@@ -527,6 +584,11 @@ export async function GET(request: NextRequest) {
       const shopifyUserIdToEmail = buildShopifyUserIdToEmailMap(creatorUsers);
       const erpnextUsernameToEmail = buildErpnextUsernameToEmailMap(creatorUsers);
       const vendorNames = vendors.map((vendor) => vendor.name);
+      let brandCatalog: Map<string, AdaptCatalogHit> | null = null;
+      const getBrandCatalog = async () => {
+        if (!brandCatalog) brandCatalog = await loadDumpBrandCatalog(companyId);
+        return brandCatalog;
+      };
 
       let orderPhase = yearCursor.phase === "order";
       let orderCursorId = yearCursor.phase === "order" ? yearCursor.id : "";
@@ -543,17 +605,7 @@ export async function GET(request: NextRequest) {
         const adaptPage = hasMoreAdapt ? fetchedAdapt.slice(0, ADAPT_DUMP_PAGE_SIZE) : fetchedAdapt;
 
         if (adaptPage.length > 0) {
-          const catalogItems = await prisma.productItem.findMany({
-            where: { companyId, sku: { not: null } },
-            select: { sku: true, barcode: true, vendor: { select: { name: true } } },
-          });
-          const catalog = buildAdaptCatalogMap(
-            catalogItems.map((item) => ({
-              sku: item.sku,
-              barcode: item.barcode,
-              vendorName: item.vendor?.name ?? null,
-            })),
-          );
+          const catalog = await getBrandCatalog();
 
           for (const invoice of adaptPage) {
             const location = invoice.companyLocation?.companyId === companyId ? invoice.companyLocation : null;
@@ -565,6 +617,7 @@ export async function GET(request: NextRequest) {
               ttlAmount: invoice.ttlAmount,
               locationName: invoice.locationName || location?.name || null,
               paymentMethod: invoice.paymentMethod,
+              rawPaymentContext: invoice.rawPaymentContext,
               merchantKnownName: invoice.merchantKnownName,
               financialStatus: invoice.financialStatus,
               lineItems: invoice.lineItems,
@@ -617,13 +670,14 @@ export async function GET(request: NextRequest) {
               companyId,
               orders.map((order) => order.id),
             );
+            const catalog = await getBrandCatalog();
             await writeOrderedConcurrentLines(orders, write, async (order) => {
               const customerName =
                 getCustomerName(order.shippingAddress) ||
                 getCustomerName(order.billingAddress) ||
                 order.customerEmail ||
                 "";
-              const paymentGateway = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "";
+              const paymentGateway = dumpOrderPaymentGateway(order);
               const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
               const createdBy = resolveOrderCreatedByEmail({
                 sourceName: order.sourceName,
@@ -717,16 +771,15 @@ export async function GET(request: NextRequest) {
                   customerPhone: resolveCustomerPhone(order) ?? null,
                   sku: item.productItem.sku,
                   barcode: item.productItem.barcode,
-                  brand: resolveDumpBrand({
-                    catalogBrand: item.productItem.vendor?.name,
-                    payloadBrand: getPayloadLineItemBrand({
-                      rawPayload: order.rawPayload,
-                      shopifyLineItemId: item.shopifyLineItemId,
-                      sku: item.productItem.sku,
-                      index,
-                    }),
+                  brand: dumpLineBrand({
+                    sku: item.productItem.sku,
                     productTitle: item.productItem.productTitle,
+                    vendorName: item.productItem.vendor?.name,
+                    rawPayload: order.rawPayload,
+                    shopifyLineItemId: item.shopifyLineItemId,
+                    index,
                     vendorNames,
+                    catalog,
                   }),
                   productTitle: item.productItem.productTitle,
                   quantity: item.quantity,
@@ -778,7 +831,7 @@ export async function GET(request: NextRequest) {
                 getCustomerName(order.billingAddress) ||
                 order.customerEmail ||
                 "";
-              const paymentGateway = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "";
+              const paymentGateway = dumpOrderPaymentGateway(order);
               const merchantCouponCode = getMerchantCouponCode({
                 sourceName: order.sourceName,
                 discountCodes: order.discountCodes,
@@ -923,6 +976,7 @@ export async function GET(request: NextRequest) {
       const erpnextUsernameToEmail = buildErpnextUsernameToEmailMap(creatorUsers);
       const vendorNames = vendors.map((vendor) => vendor.name);
       totalCsvRows = report === "invoice-item" ? totalLineItems : totalOrders;
+      const brandCatalog = report === "invoice-item" ? await loadDumpBrandCatalog(companyId) : new Map<string, AdaptCatalogHit>();
 
         if (report === "invoice-item") {
             const fetchedOrders = await prisma.order.findMany({
@@ -950,7 +1004,7 @@ export async function GET(request: NextRequest) {
         getCustomerName(order.billingAddress) ||
         order.customerEmail ||
         "";
-      const paymentGateway = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "";
+      const paymentGateway = dumpOrderPaymentGateway(order);
       const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
       const createdBy = resolveOrderCreatedByEmail({
         sourceName: order.sourceName,
@@ -1047,16 +1101,15 @@ export async function GET(request: NextRequest) {
           customerPhone: resolveCustomerPhone(order) ?? null,
           sku: item.productItem.sku,
           barcode: item.productItem.barcode,
-          brand: resolveDumpBrand({
-            catalogBrand: item.productItem.vendor?.name,
-            payloadBrand: getPayloadLineItemBrand({
-              rawPayload: order.rawPayload,
-              shopifyLineItemId: item.shopifyLineItemId,
-              sku: item.productItem.sku,
-              index,
-            }),
+          brand: dumpLineBrand({
+            sku: item.productItem.sku,
             productTitle: item.productItem.productTitle,
+            vendorName: item.productItem.vendor?.name,
+            rawPayload: order.rawPayload,
+            shopifyLineItemId: item.shopifyLineItemId,
+            index,
             vendorNames,
+            catalog: brandCatalog,
           }),
           productTitle: item.productItem.productTitle,
           quantity: item.quantity,
@@ -1108,7 +1161,7 @@ export async function GET(request: NextRequest) {
       getCustomerName(order.billingAddress) ||
       order.customerEmail ||
       "";
-    const paymentGateway = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "";
+    const paymentGateway = dumpOrderPaymentGateway(order);
     const merchantCouponCode = getMerchantCouponCode({
       sourceName: order.sourceName,
       discountCodes: order.discountCodes,

@@ -79,6 +79,21 @@ describe("adapt-history-dump", () => {
     ).toBe("OGX")
   })
 
+  it("matches hyphen ERP sku to underscore Cosmo catalog brand", () => {
+    const catalog = buildAdaptCatalogMap([
+      { sku: "BV001_1", barcode: null, vendorName: "Beauty Vault" },
+    ])
+    const hit = matchAdaptCatalog(catalog, "BV001-1")
+    expect(hit.brand).toBe("Beauty Vault")
+    expect(
+      resolveDumpBrand({
+        catalogBrand: hit.brand,
+        productTitle: "Beauty Vault Lumi 24H Glutathione 60 Capsules",
+        vendorNames: [],
+      }),
+    ).toBe("Beauty Vault")
+  })
+
   it("adds data_source to historical headers only", () => {
     expect(getHistoricalOrderInvoiceCsvHeaders().at(-1)).toBe("data_source")
     expect(getHistoricalOrderInvoiceItemCsvHeaders().at(-1)).toBe("data_source")
@@ -159,6 +174,23 @@ describe("adapt-history-dump", () => {
       brand: "OGX",
       erp_invoice_id: "102222",
     })
+  })
+
+  it("skips Adapt N/A paymentMethod and uses cash/card context", () => {
+    const invoice = mapAdaptInvoiceToDumpInvoiceRow({
+      salesInvoiceNo: "ADAPT-NA",
+      invoiceDate: new Date("2019-06-15T10:00:00+05:30"),
+      ttlAmount: new Prisma.Decimal("100.00"),
+      locationName: "Colombo",
+      paymentMethod: "N/A",
+      rawPaymentContext: { cash: 100, card: null },
+      merchantKnownName: null,
+      financialStatus: "paid",
+      lineItems: [{ itemCode: "SKU_1", itemName: "Serum", unitPrice: "100", quantity: 1 }],
+      contact: null,
+    })
+    expect(invoice.payment_gateway).toBe("Cash")
+    expect(invoice.payment_status).toBe("paid")
   })
 
   it("labels Cosmo rows with Cosmo OS data_source", () => {
